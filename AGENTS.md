@@ -29,7 +29,8 @@ ruff check src/kiln/ tests/          # lint — must be clean before any commit
   branches elsewhere.
 - **Exit codes** come from `utils/exitcodes.py` (`0 OK / 1 RUNTIME / 2 VERDICT_FAIL /
   3 USAGE`) and the taxonomy is pinned by test.
-- Version sync between pyproject and `kiln.__version__` is tested.
+- **Every PR** adds a changelog fragment under `changelog.d/<version>/`; version sync
+  between pyproject and `kiln.__version__` is tested.
 - Line length 100, ruff rules `E, F, I, N, W`.
 
 ## Full plan & records
