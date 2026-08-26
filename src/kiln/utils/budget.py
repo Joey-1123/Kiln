@@ -40,14 +40,17 @@ class VRAMPreflight:
 
     @property
     def estimated_gb(self) -> float:
+        """Estimated VRAM usage in GB for a given config."""
         return self.estimated_bytes / (1024**3)
 
     @property
     def available_gb(self) -> float:
+        """Available VRAM in GB across detected GPUs."""
         return self.available_bytes / (1024**3)
 
     @property
     def margin_gb(self) -> float:
+        """Slack between available and estimated VRAM, in GB."""
         return self.margin_bytes / (1024**3)
 
 

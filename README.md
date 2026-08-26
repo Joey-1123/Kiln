@@ -39,3 +39,21 @@ analyzed in `specs/references-analysis.md`, **not** copied or forked):
 - [FreeToken](https://github.com/FlashML-org/FreeToken) — edge-native MoE serving engine (process topology, capability matrices, elastic VRAM)
 
 Each is Apache-2.0, the same license as Kiln. See `NOTICE` for full attribution.
+
+## Shell completion
+
+`kiln` ships with built-in shell completions (Typer/Click). Enable them for your shell:
+
+```bash
+# bash
+eval "$(_KILN_COMPLETE=source_bash kiln)"
+
+# zsh
+eval "$(_KILN_COMPLETE=source_zsh kiln)"
+
+# fish
+_KILN_COMPLETE=source_fish kiln | source
+```
+
+Add the relevant line to your shell's rc file to persist.
+

@@ -219,7 +219,9 @@ class QueueTransport:
         self._q: asyncio.Queue[EngineMessage] = asyncio.Queue(maxsize=maxsize)
 
     async def put(self, msg: EngineMessage) -> None:
+        """Put a message onto the transport."""
         await self._q.put(msg)
 
     async def get(self) -> EngineMessage:
+        """Get the next message from the transport (blocks)."""
         return await self._q.get()

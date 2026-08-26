@@ -49,6 +49,7 @@ _PendingFut = asyncio.Future[HealthResponse | GenerateComplete | GenerateError]
 
 
 class OpenAIChatMessage(BaseModel):
+    """OpenAI chat message object (role + content)."""
     role: str
     content: str | None = None
     name: str | None = None
@@ -56,11 +57,13 @@ class OpenAIChatMessage(BaseModel):
 
 
 class OpenAITool(BaseModel):
+    """OpenAI tool definition object."""
     type: str = "function"
     function: dict[str, Any] = Field(default_factory=dict)
 
 
 class OpenAIChatRequest(BaseModel):
+    """OpenAI chat completion request envelope."""
     model: str = ""
     messages: list[OpenAIChatMessage] = []
     temperature: float = 0.7
@@ -72,18 +75,21 @@ class OpenAIChatRequest(BaseModel):
 
 
 class OpenAIChoice(BaseModel):
+    """A single OpenAI completion choice."""
     index: int = 0
     message: dict[str, Any] = Field(default_factory=dict)
     finish_reason: str = "stop"
 
 
 class OpenAIUsage(BaseModel):
+    """OpenAI token usage object."""
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
 
 
 class OpenAIChatResponse(BaseModel):
+    """OpenAI chat completion response envelope."""
     id: str = ""
     object: str = "chat.completion"
     created: int = 0
@@ -93,6 +99,7 @@ class OpenAIChatResponse(BaseModel):
 
 
 class OpenAIModel(BaseModel):
+    """OpenAI model object."""
     id: str
     object: str = "model"
     created: int = 0
@@ -100,16 +107,19 @@ class OpenAIModel(BaseModel):
 
 
 class OpenAIModelList(BaseModel):
+    """OpenAI model list response."""
     object: str = "list"
     data: list[OpenAIModel] = []
 
 
 class AnthropicMessage(BaseModel):
+    """Anthropic message object."""
     role: str
     content: str | list[dict[str, Any]]
 
 
 class AnthropicRequest(BaseModel):
+    """Anthropic-style message request envelope."""
     model: str = ""
     messages: list[AnthropicMessage] = []
     max_tokens: int = 512
@@ -119,11 +129,13 @@ class AnthropicRequest(BaseModel):
 
 
 class AnthropicContentBlock(BaseModel):
+    """A content block within an Anthropic message."""
     type: str = "text"
     text: str = ""
 
 
 class AnthropicResponse(BaseModel):
+    """Anthropic message response envelope."""
     id: str = ""
     type: str = "message"
     role: str = "assistant"
@@ -134,6 +146,7 @@ class AnthropicResponse(BaseModel):
 
 
 class ErrorEnvelope(BaseModel):
+    """Standard error envelope returned on failures."""
     error: dict[str, Any]
 
 
@@ -240,6 +253,7 @@ def create_gateway(
 
     @app.get("/v1/models")
     async def list_models() -> OpenAIModelList:
+        """GET /v1/models handler — list available models."""
         return OpenAIModelList(data=[
             OpenAIModel(id=app.state.model_name, owned_by="kiln"),
         ])

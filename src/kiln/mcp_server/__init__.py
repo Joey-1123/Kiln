@@ -24,6 +24,7 @@ def _json_text(data: Any) -> list[TextContent]:
 
 
 def build_server() -> MCPServer:
+    """Construct the configured MCP MCPServer with all tools."""
     server = MCPServer(
         name=SERVER_NAME,
         title="Kiln",
@@ -40,6 +41,7 @@ def build_server() -> MCPServer:
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
     )
     async def kiln_plan() -> list[TextContent]:
+        """MCP tool — hardware recommendations for serving."""
         from kiln.plan import build_plan, format_plan
 
         result = build_plan()
@@ -53,6 +55,7 @@ def build_server() -> MCPServer:
     async def kiln_doctor(
         deep: bool = False,
     ) -> list[TextContent]:
+        """MCP tool — system health checks."""
         from kiln.doctor import run_doctor
 
         report = run_doctor(deep=deep)
@@ -67,6 +70,7 @@ def build_server() -> MCPServer:
         model_id: str,
         dest: str = "./models",
     ) -> list[TextContent]:
+        """MCP tool — download a model from the HF hub."""
         from kiln.hub.fetch import fetch_model
 
         result = fetch_model(model_id=model_id, dest=dest)
@@ -86,6 +90,7 @@ def build_server() -> MCPServer:
         output_dir: str = "./gguf",
         quant: str = "Q4_K_M",
     ) -> list[TextContent]:
+        """MCP tool — export a model to quantized GGUF."""
         from kiln.export import export_gguf
 
         result = export_gguf(
@@ -108,6 +113,7 @@ def build_server() -> MCPServer:
     async def kiln_data_lint(
         path: str,
     ) -> list[TextContent]:
+        """MCP tool — lint a training-data file."""
         from kiln.data.lint import lint_file
 
         issues = lint_file(path)
@@ -128,6 +134,7 @@ def build_server() -> MCPServer:
     async def kiln_data_stats(
         path: str,
     ) -> list[TextContent]:
+        """MCP tool — compute dataset statistics."""
         from kiln.data.stats import compute_stats
 
         stats = compute_stats(path)

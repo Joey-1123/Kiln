@@ -31,6 +31,7 @@ _SUBPROC_TIMEOUT = 30 * 60  # 30 min max per subprocess
 
 @dataclass(frozen=True)
 class GGUFResult:
+    """Result of a GGUF export (path, quant, size)."""
     output_path: str
     quant: str
     size_bytes: int
@@ -38,6 +39,7 @@ class GGUFResult:
 
 
 def list_quantizations() -> list[str]:
+    """Return the supported GGUF quantization names."""
     return list(_QUANT_PROFILES.keys())
 
 

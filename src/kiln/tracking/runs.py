@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS _meta (
 
 @dataclass
 class RunRecord:
+    """A single training run record (id, status, paths)."""
     id: int
     config_sha: str
     model: str

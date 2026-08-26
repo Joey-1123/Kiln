@@ -50,10 +50,12 @@ class Supervisor:
 
     @property
     def is_running(self) -> bool:
+        """Whether the supervisor is actively monitoring the engine."""
         return self._running
 
     @property
     def engine_pid(self) -> int | None:
+        """PID of the managed engine process, or None."""
         return self._process.pid if self._process else None
 
     async def start(self) -> bool:

@@ -13,6 +13,7 @@ from kiln.utils.exitcodes import RUNTIME
 
 @dataclass(frozen=True)
 class FriendlyError:
+    """Mapped error with message, hint, and exit code."""
     message: str
     hint: str | None
     exit_code: int

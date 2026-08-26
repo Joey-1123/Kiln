@@ -29,6 +29,7 @@ class Verdict:
 
     @property
     def is_ship(self) -> bool:
+        """True when the measured metric meets the ship threshold."""
         return self.code == OK
 
 

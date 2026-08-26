@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 class DataFormat(str, Enum):
+    """Enum of supported training-data formats (alpaca, sharegpt, instruct)."""
     ALPACA = "alpaca"
     CHATML = "chatml"  # {messages: [{role, content}, ...]}
     SHAREGPT = "sharegpt"  # {conversations: [{from, value}, ...]}

@@ -51,6 +51,7 @@ class DataConfig(BaseModel):
 
 
 class LoraConfig(BaseModel):
+    """LoRA adapter hyperparameters (rank, alpha, dropout)."""
     r: int = Field(16, ge=1, le=256)
     alpha: int = Field(16, ge=1, le=512)
     dropout: float = Field(0.05, ge=0.0, lt=1.0)
@@ -60,6 +61,7 @@ class LoraConfig(BaseModel):
 
 
 class TrainingConfig(BaseModel):
+    """Training hyperparameters (batch, epochs, lr, seed, quant)."""
     epochs: int = Field(3, ge=1, le=100)
     lr: float = Field(2e-5, gt=0.0, le=1.0)
     batch_size: int | str = Field(4, description="int or 'auto'")
@@ -86,12 +88,14 @@ class TrainingConfig(BaseModel):
 
 
 class ServeConfig(BaseModel):
+    """Serving host/port configuration."""
     host: str = Field("127.0.0.1", description="localhost bind by default (security default)")
     port: int = Field(8000, ge=1, le=65535)
     context_length: int = Field(4096, ge=256)
 
 
 class OutputConfig(BaseModel):
+    """Output directory for training artifacts."""
     dir: Path = Field(Path("./output"))
 
 

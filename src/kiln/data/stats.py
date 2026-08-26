@@ -12,6 +12,7 @@ from kiln.data.formats import DataFormat, detect_format, detect_row, read_jsonl
 
 @dataclass(frozen=True)
 class DatasetStats:
+    """Aggregated statistics for a training dataset."""
     rows: int
     format: DataFormat | None
     unrecognized: int
@@ -22,6 +23,7 @@ class DatasetStats:
     est_tokens_total: int  # chars/4 heuristic — honest estimate, not tokenizer count
 
     def render(self) -> str:
+        """Render these stats as a human-readable string."""
         lines = [
             f"rows          : {self.rows}",
             f"format        : {self.format.value if self.format else 'unrecognized'}",
@@ -67,6 +69,7 @@ def _output_text(fmt: DataFormat | None, row: dict) -> str | None:
 
 
 def inspect_file(path: str | Path) -> DatasetStats:
+    """Compute statistics for a dataset file; return a DatasetStats."""
     rows = read_jsonl(path)
     sample = rows[:200]
     fmt = detect_format([r for r, _ in sample])

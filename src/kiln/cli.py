@@ -18,14 +18,28 @@ from kiln._bootstrap import force_utf8_stdio
 from kiln.utils import exitcodes
 from kiln.utils.errors import map_exception
 
+
+def _version_callback(
+    version: bool = typer.Option(False, "--version", help="Show version and exit."),
+) -> None:
+    if version:
+        from kiln import __version__
+
+        console.print(f"kiln {__version__}")
+        raise typer.Exit(exitcodes.OK)
+
+
 app = typer.Typer(
     name="kiln",
     help="Fine-tune, serve, and chat with open models on consumer hardware.",
     no_args_is_help=True,
     rich_markup_mode="rich",
     pretty_exceptions_show_locals=False,
+    callback=_version_callback,
+    invoke_without_command=True,
 )
 console = Console()
+console_err = Console(stderr=True)
 
 # Stubs that arrive in later milestones, listed for --help discoverability.
 _NOT_IMPLEMENTED = {
@@ -57,15 +71,21 @@ def init(
 
 
 @app.command("login")
-def login_cmd() -> None:
+def login_cmd(
+    token: Annotated[
+        Optional[str],
+        typer.Option("--token", help="HF token (non-interactive/CI mode)."),
+    ] = None,
+) -> None:
     """Store your Hugging Face token (needed for gated models)."""
     from kiln.hub.auth import load_token, save_token
 
     existing = load_token()
     source = "env" if os.environ.get("HF_TOKEN") else "stored"
-    if existing:
+    if existing and not token:
         console.print(f"A token is already configured (source: {source}).")
-    token = typer.prompt("HF token", hide_input=True)
+    if not token:
+        token = typer.prompt("HF token", hide_input=True)
     if not token.strip():
         console.print("[red]Empty token; nothing saved.[/red]")
         raise typer.Exit(exitcodes.USAGE)
@@ -733,13 +753,13 @@ def run() -> None:
     try:
         app()
     except KeyboardInterrupt:
-        console.print("\n[yellow]Interrupted.[/yellow]")
+        console_err.print("\n[yellow]Interrupted.[/yellow]")
         raise SystemExit(130) from None
     except Exception as exc:  # noqa: BLE001 - single mapped exit path
         friendly = map_exception(exc)
-        console.print(f"[red]{friendly.message}[/red]")
+        console_err.print(f"[red]{friendly.message}[/red]")
         if friendly.hint:
-            console.print(f"[dim]{friendly.hint}[/dim]")
+            console_err.print(f"[dim]{friendly.hint}[/dim]")
         raise SystemExit(friendly.exit_code) from exc
 
 

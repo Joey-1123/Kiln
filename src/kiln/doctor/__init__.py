@@ -36,6 +36,7 @@ _DEPS = [
 
 @dataclass
 class CheckResult:
+    """Result of a single doctor check (id, status, summary)."""
     id: str
     status: str  # pass | fail | warn | skip
     summary: str
@@ -43,12 +44,14 @@ class CheckResult:
 
 @dataclass
 class DoctorReport:
+    """Aggregated system-health report (status + checks)."""
     schema_version: int = 1
     status: str = "pass"
     checks: list[CheckResult] = field(default_factory=list)
     plan: dict | None = None
 
     def to_dict(self) -> dict:
+        """Serialize this report to a plain dict."""
         return {
             "schema_version": self.schema_version,
             "status": self.status,
@@ -209,6 +212,7 @@ def _check_engine_backends() -> list[CheckResult]:
 
 
 def run_doctor(*, deep: bool = False) -> DoctorReport:
+    """Run quick/Deep system health checks; return a DoctorReport."""
     report = DoctorReport()
 
     report.checks.append(_check_python())

@@ -14,6 +14,7 @@ from typing import Any
 
 @dataclass
 class PlanResult:
+    """Hardware recommendation result (backend, quant, specs)."""
     backend: str
     quant_recommendation: str
     vram_gb: float | None
@@ -23,6 +24,7 @@ class PlanResult:
     suggested_config: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
+        """Serialize this plan result to a plain dict."""
         return asdict(self)
 
 
@@ -62,6 +64,7 @@ def _get_disk_free_gb() -> float | None:
 
 
 def build_plan() -> PlanResult:
+    """Detect hardware and recommend a serving configuration."""
     gpu_name, vram_gb = _get_gpu_info()
     ram_gb = _get_ram_gb()
     disk_gb = _get_disk_free_gb()
@@ -113,6 +116,7 @@ def build_plan() -> PlanResult:
 
 
 def format_plan(plan: PlanResult) -> str:
+    """Render a PlanResult as a human-readable string."""
     lines = [
         f"Backend:     {plan.backend}",
         f"Quant:       {plan.quant_recommendation}",

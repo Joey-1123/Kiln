@@ -24,6 +24,7 @@ def config_root() -> Path:
 
 
 def token_path() -> Path:
+    """Path where the HF token is stored."""
     return config_root() / "token"
 
 

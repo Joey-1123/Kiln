@@ -17,6 +17,7 @@ from typing import Any
 
 @dataclass
 class EnvVarUsage:
+    """A single os.environ/os.getenv usage site."""
     name: str
     source_file: str
     line: int
@@ -26,6 +27,7 @@ class EnvVarUsage:
 
 @dataclass
 class EnvInventory:
+    """Collection of env-var usages with manifest export."""
     variables: list[EnvVarUsage] = field(default_factory=list)
     source_root: str = ""
     file_count: int = 0
@@ -51,6 +53,7 @@ class EnvInventory:
         return result
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the inventory to a plain dict."""
         return {
             "source_root": self.source_root,
             "file_count": self.file_count,
@@ -59,6 +62,7 @@ class EnvInventory:
         }
 
     def to_json(self, indent: int = 2) -> str:
+        """Serialize the inventory to a JSON string."""
         return json.dumps(self.to_dict(), indent=indent)
 
 
@@ -77,6 +81,7 @@ class _EnvVarVisitor(ast.NodeVisitor):
         self.usages: list[EnvVarUsage] = []
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
+        """AST visitor — detect os.environ[...] patterns."""
         # os.environ[X] pattern
         if (
             isinstance(node.value, ast.Attribute)
@@ -100,6 +105,7 @@ class _EnvVarVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
+        """AST visitor — detect os.environ['X'] subscriptions."""
         # os.environ["VAR"] or os.environ.get("VAR")
         if (
             isinstance(node.value, ast.Attribute)
@@ -118,6 +124,7 @@ class _EnvVarVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
+        """AST visitor — detect os.getenv(...) / os.environ.get(...)."""
         # os.getenv("VAR") or os.getenv("VAR", default) or os.environ.get("VAR")
         func = node.func
 

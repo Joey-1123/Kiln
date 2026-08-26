@@ -30,27 +30,33 @@ _SYSTEM_PROMPT_DEFAULT = "You are a helpful assistant."
 
 @dataclass
 class ChatMessage:
+    """A single chat message (role + content)."""
     role: str
     content: str
 
 
 @dataclass
 class ChatSession:
+    """Holds chat history, system prompt, and server config for a chat session."""
     messages: list[ChatMessage] = field(default_factory=list)
     system_prompt: str = _SYSTEM_PROMPT_DEFAULT
     server_url: str = "http://localhost:8080"
     model_name: str = "default"
 
     def add_user(self, content: str) -> None:
+        """Append a user message to the conversation."""
         self.messages.append(ChatMessage(role="user", content=content))
 
     def add_assistant(self, content: str) -> None:
+        """Append an assistant message to the conversation."""
         self.messages.append(ChatMessage(role="assistant", content=content))
 
     def clear(self) -> None:
+        """Reset the conversation history."""
         self.messages.clear()
 
     def to_api_messages(self) -> list[dict[str, str]]:
+        """Render the session as OpenAI-style message dicts."""
         result = []
         if self.system_prompt:
             result.append({"role": "system", "content": self.system_prompt})

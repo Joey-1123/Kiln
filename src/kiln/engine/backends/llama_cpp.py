@@ -44,10 +44,12 @@ class CPUBackend:
 
     @property
     def is_loaded(self) -> bool:
+        """Whether a model is currently loaded in this backend."""
         return self._llm is not None
 
     @property
     def model_path(self) -> str:
+        """Path of the currently loaded model, or None."""
         return self._model_path
 
     def load_model(self, model_path: str, *, n_ctx: int = 4096, n_threads: int = 4) -> None:

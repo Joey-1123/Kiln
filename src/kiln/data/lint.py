@@ -18,11 +18,13 @@ SHAREGPT_VALID_FROM = {"human", "gpt", "system"}
 
 @dataclass(frozen=True)
 class LintIssue:
+    """A single lint problem (line, rule, message)."""
     line: int  # 0 = file-level issue
     rule: str
     message: str
 
     def render(self) -> str:
+        """Render this issue as a human-readable string."""
         where = f"line {self.line}" if self.line else "file"
         return f"[{self.rule}] {where}: {self.message}"
 

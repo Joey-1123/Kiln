@@ -14,6 +14,7 @@ from kiln.utils.errors import KilnError
 
 @dataclass(frozen=True)
 class DiskPreflight:
+    """Disk-space preflight result for a download."""
     repo_id: str
     model_bytes: int
     free_bytes: int
@@ -21,10 +22,13 @@ class DiskPreflight:
 
     @property
     def ok(self) -> bool:
+        """Whether the preflight checks passed."""
         return self.free_bytes >= self.required_bytes
 
     def human_summary(self) -> str:
+        """Human-readable preflight summary."""
         def gb(n: int) -> str:
+            """Convert a byte count to gigabytes."""
             return f"{n / 1e9:.2f} GB"
 
         return (

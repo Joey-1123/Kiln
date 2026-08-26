@@ -49,10 +49,12 @@ class Engine:
 
     @property
     def is_running(self) -> bool:
+        """Whether the engine loop is currently active."""
         return self._running
 
     @property
     def backend_info(self) -> BackendInfo | None:
+        """Return the resolved BackendInfo for the loaded backend."""
         return self._backend_info
 
     async def run(self) -> None:
