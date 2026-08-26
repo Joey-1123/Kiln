@@ -31,7 +31,6 @@ console = Console()
 # Stubs that arrive in later milestones, listed for --help discoverability.
 _NOT_IMPLEMENTED = {
     "init": "Milestone 1 (wizard lands with config templates)",
-    "train": "Milestone 3",
     "serve": "Milestone 4",
     "chat": "Milestone 6",
     "export": "Milestone 5",
@@ -188,10 +187,87 @@ def data_preview(
 
 @app.command()
 def train(
-    config: Annotated[Optional[str], typer.Option("--config", "-c")] = None,
+    config: Annotated[str, typer.Option("--config", "-c", help="Path to kiln.yaml")],
+    mode: Annotated[str, typer.Option("--mode", "-m", help="sft or dpo")] = "sft",
 ) -> None:
     """Fine-tune a model (SFT/DPO via QLoRA)."""
-    _stub_exit("train")
+    from kiln.config.config_sha import recipe_hash
+    from kiln.config.schema import load_config
+    from kiln.tracking.runs import RunTracker
+
+    try:
+        cfg = load_config(config)
+    except Exception as exc:
+        friendly = map_exception(exc)
+        console.print(f"[red]{friendly.message}[/red]")
+        if friendly.hint:
+            console.print(f"[dim]{friendly.hint}[/dim]")
+        raise typer.Exit(friendly.exit_code)
+
+    sha = recipe_hash(cfg)
+    tracker = RunTracker(Path(cfg.recipe.output.dir) / "runs.db")
+    run_record = tracker.start_run(
+        config_sha=sha,
+        model=cfg.recipe.model.base,
+        mode=mode,
+    )
+    console.print(f"[dim]Run #{run_record.id} started (sha={sha}, mode={mode})[/dim]")
+
+    if mode == "sft":
+        from kiln.trainer.sft import train_sft
+
+        result = train_sft(
+            model_path=cfg.recipe.model.base,
+            dataset_path=str(cfg.recipe.data.train) if cfg.recipe.data else "",
+            output_dir=str(cfg.recipe.output.dir),
+            config=cfg.model_dump(mode="json"),
+            lora_rank=cfg.recipe.training.lora.r,
+            lora_alpha=cfg.recipe.training.lora.alpha,
+            lora_dropout=cfg.recipe.training.lora.dropout,
+            batch_size=(
+                cfg.recipe.training.batch_size
+                if isinstance(cfg.recipe.training.batch_size, int) else 4
+            ),
+            epochs=cfg.recipe.training.epochs,
+            lr=cfg.recipe.training.lr,
+            seed=cfg.recipe.training.seed,
+            quantization=cfg.recipe.training.quantization,
+        )
+    elif mode == "dpo":
+        from kiln.trainer.dpo import train_dpo
+
+        result = train_dpo(
+            model_path=cfg.recipe.model.base,
+            dataset_path=str(cfg.recipe.data.train) if cfg.recipe.data else "",
+            output_dir=str(cfg.recipe.output.dir),
+            config=cfg.model_dump(mode="json"),
+            lora_rank=cfg.recipe.training.lora.r,
+            lora_alpha=cfg.recipe.training.lora.alpha,
+            lora_dropout=cfg.recipe.training.lora.dropout,
+            batch_size=(
+                cfg.recipe.training.batch_size
+                if isinstance(cfg.recipe.training.batch_size, int) else 2
+            ),
+            epochs=cfg.recipe.training.epochs,
+            lr=cfg.recipe.training.lr,
+            seed=cfg.recipe.training.seed,
+            quantization=cfg.recipe.training.quantization,
+        )
+    else:
+        console.print(f"[red]Unknown mode: {mode!r}. Use 'sft' or 'dpo'.[/red]")
+        raise typer.Exit(exitcodes.USAGE)
+
+    if result.success:
+        tracker.finish_run(
+            run_record.id,
+            status="completed",
+            adapter_path=result.adapter_path,
+        )
+        console.print(f"[green]Training complete.[/green] Adapter: {result.adapter_path}")
+    else:
+        tracker.finish_run(run_record.id, status="failed", notes=result.error)
+        console.print(f"[red]Training failed: {result.error}[/red]")
+        raise typer.Exit(exitcodes.RUNTIME)
 
 
 @app.command()
@@ -221,9 +297,118 @@ def plan() -> None:
 
 
 @app.command()
-def ship(config: Annotated[Optional[str], typer.Option("--config", "-c")] = None) -> None:
+def ship(
+    config: Annotated[str, typer.Option("--config", "-c", help="Path to kiln.yaml")],
+    metric: Annotated[str, typer.Option("--metric", help="Metric name to evaluate")] = "accuracy",
+    value: Annotated[float, typer.Option("--value", help="Measured metric value")] = 0.0,
+) -> None:
     """Run the eval gate; exit code carries the SHIP/DON'T-SHIP verdict."""
-    _stub_exit("ship")
+    from kiln.config.config_sha import recipe_hash
+    from kiln.config.schema import load_config
+    from kiln.utils.ship_verdict import judge
+
+    try:
+        cfg = load_config(config)
+    except Exception as exc:
+        friendly = map_exception(exc)
+        console.print(f"[red]{friendly.message}[/red]")
+        if friendly.hint:
+            console.print(f"[dim]{friendly.hint}[/dim]")
+        raise typer.Exit(friendly.exit_code)
+
+    threshold = cfg.eval.ship.metric_threshold
+    verdict = judge(
+        metric_name=metric,
+        metric_value=value,
+        threshold=threshold,
+    )
+
+    sha = recipe_hash(cfg)
+    console.print(f"[dim]config_sha={sha}[/dim]")
+    console.print(f"[dim]{verdict.reason}[/dim]")
+
+    if verdict.is_ship:
+        console.print("[green]SHIP[/green]")
+        raise typer.Exit(exitcodes.OK)
+    else:
+        console.print("[red]DON'T-SHIP[/red]")
+        raise typer.Exit(exitcodes.VERDICT_FAIL)
+
+
+@app.command()
+def merge(
+    adapter: Annotated[
+        str, typer.Option("--adapter", "-a", help="Path to LoRA adapter dir")
+    ],
+    output: Annotated[
+        str, typer.Option("--output", "-o", help="Output path for merged model")
+    ],
+    base_model: Annotated[
+        Optional[str],
+        typer.Option(
+            "--base-model",
+            help="Base model (auto-detected from adapter config if omitted)",
+        ),
+    ] = None,
+) -> None:
+    """Merge a LoRA adapter into the base model and save as safetensors."""
+    from pathlib import Path
+
+    adapter_path = Path(adapter)
+    if not adapter_path.is_dir():
+        console.print(f"[red]Adapter directory not found: {adapter_path}[/red]")
+        raise typer.Exit(exitcodes.USAGE)
+
+    try:
+        from peft import PeftModel
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        # Auto-detect base model from adapter config if not provided
+        if base_model is None:
+            adapter_config_path = adapter_path / "adapter_config.json"
+            if not adapter_config_path.exists():
+                console.print(
+                    "[red]Cannot auto-detect base model: "
+                    "adapter_config.json not found.[/red]"
+                )
+                raise typer.Exit(exitcodes.USAGE)
+            import json
+            with open(adapter_config_path) as f:
+                adapter_cfg = json.load(f)
+            base_model = adapter_cfg.get("base_model_name_or_path")
+            if not base_model:
+                console.print("[red]base_model_name_or_path not in adapter_config.json.[/red]")
+                raise typer.Exit(exitcodes.USAGE)
+
+        console.print(f"[dim]Loading base model: {base_model}[/dim]")
+        model = AutoModelForCausalLM.from_pretrained(base_model, device_map="auto")
+        tokenizer = AutoTokenizer.from_pretrained(base_model)
+
+        console.print(f"[dim]Loading adapter: {adapter_path}[/dim]")
+        model = PeftModel.from_pretrained(model, str(adapter_path))
+
+        console.print("[dim]Merging weights...[/dim]")
+        model = model.merge_and_unload()
+
+        console.print(f"[dim]Saving to {output}...[/dim]")
+        output_path = Path(output)
+        output_path.mkdir(parents=True, exist_ok=True)
+        model.save_pretrained(str(output_path))
+        tokenizer.save_pretrained(str(output_path))
+
+        console.print(f"[green]Merged model saved to {output_path}[/green]")
+    except ImportError:
+        console.print(
+            '[red]Merge requires peft and transformers. '
+            'Install with: pip install "kiln-cli[train]"[/red]'
+        )
+        raise typer.Exit(exitcodes.RUNTIME)
+    except Exception as exc:
+        friendly = map_exception(exc)
+        console.print(f"[red]{friendly.message}[/red]")
+        if friendly.hint:
+            console.print(f"[dim]{friendly.hint}[/dim]")
+        raise typer.Exit(friendly.exit_code)
 
 
 @app.command()

@@ -57,3 +57,40 @@ What is finished and verified. An item moves here only after its verification co
 **Milestone 2 status: COMPLETE** (network path verified by unit tests with mocked
 transport; live HF download deferred to first real use).
 
+## Spike — llama.cpp (§12.2)
+
+- [x] `llama-cpp-python==0.3.35` installed into `.venv` (Python 3.12)
+- [x] Import verified clean — validates D7/Tier 2 CPU inference path
+
+### Verification results (2026-08-26)
+
+| Check | Result |
+|---|---|
+| `import llama_cpp` | ✅ 0.3.35, no build errors |
+| CPU-only import (no CUDA) | ✅ works |
+
+## Milestone 3 — Train
+
+- [x] `utils/budget.py` — torch-free analytic VRAM preflight (pure math, no CUDA import)
+- [x] `config/config_sha.py` — SHA-256 semantic fingerprint (recipe-only fields, eval excluded)
+- [x] `tracking/runs.py` — SQLite WAL tracker with race-guarded migrations, orphan reconcile
+- [x] `trainer/_compat.py` — capability probes via inspect.signature (never version tables)
+- [x] `trainer/sft.py` — SFT wrapper on peft/trl, QLoRA NF4, landmine checklist baked in
+- [x] `trainer/dpo.py` — DPO wrapper, NaN guard, 2× batch VRAM awareness
+- [x] `utils/ship_verdict.py` — eval gate core (metric ≥ threshold → SHIP/DON'T-SHIP)
+- [x] CLI: `kiln train --config`, `kiln ship`, `kiln merge --adapter` wired
+- [x] Tests: budget math, ship verdict, tracker WAL/reconcile, config_sha stability, compat probes
+
+### Verification results (2026-08-26)
+
+| Check | Result |
+|---|---|
+| `pytest tests/ -v` | ✅ 86 passed |
+| `ruff check src/kiln/ tests/` | ✅ All checks passed |
+| Startup-light probe suite | ✅ Still green (torch-free imports verified) |
+| `kiln train --help` | ✅ Shows train options |
+| `kiln ship --help` | ✅ Shows ship options |
+| `kiln merge --help` | ✅ Shows merge options |
+
+**Milestone 3 status: COMPLETE**
+
