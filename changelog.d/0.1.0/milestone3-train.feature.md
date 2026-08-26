@@ -1,1 +1,0 @@
-Milestone 3 — Train: QLoRA SFT/DPO wrappers with landmine checklist, torch-free VRAM preflight, semantic config fingerprint (config_sha), SQLite WAL run tracker, eval-gate ship verdict, and `kiln train/ship/merge` CLI commands.

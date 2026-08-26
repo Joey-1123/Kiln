@@ -30,3 +30,11 @@ data/raw/
 .idea/
 .DS_Store
 Thumbs.db
+
+# local / session-specific artifacts (not part of the shipped project)
+WORKLOG.md
+decision.md
+COMPLETE.md
+session-*.md
+skills-lock.json
+changelog.d/
