@@ -1,19 +1,29 @@
-# ---- Cloned reference repos (NOT part of Kiln; re-clone on the target machine) ----
+# --- kiln ---
+# reference clones (Soup/colibri/FreeToken) are studied, never vendored
 references/
 
-# ---- Python ----
+.venv/
+*.egg-info/
 __pycache__/
 *.py[cod]
 .pytest_cache/
-.mypy_cache/
 .ruff_cache/
-.venv/
-venv/
-*.egg-info/
-build/
+.coverage
+htmlcov/
 dist/
+build/
 
-# ---- OS / editor ----
+# runtime artifacts
+.kiln/
+*.db
+*.sqlite3
+
+# models / datasets are never committed
+models/
+data/raw/
+
+# editors / os
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db
-*.swp

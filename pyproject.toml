@@ -1,0 +1,86 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kiln-cli"
+dynamic = ["version"]
+description = "Fine-tune, serve, and chat with open models on consumer hardware. One tool, one config."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Kiln contributors" }]
+requires-python = ">=3.10,<3.13"
+keywords = ["llm", "fine-tuning", "qlora", "inference", "cli"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# Light core only. torch/transformers/peft/trl/etc live in extras.
+dependencies = [
+    "typer>=0.9,<1.0",
+    "rich>=13.0,<15.0",
+    "pydantic>=2.5,<3.0",
+    "pyyaml>=6.0,<7.0",
+]
+
+[project.optional-dependencies]
+train = [
+    "torch>=2.0.0",
+    "transformers>=4.40,<5.0",
+    "peft>=0.20.0,<1.0.0",
+    "trl>=0.29.0,<1.0.0",
+    "datasets>=2.14",
+    "accelerate>=0.30",
+    "bitsandbytes>=0.43; platform_system != 'Windows'",
+    "safetensors>=0.4",
+]
+serve = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "pyzmq>=25.0",
+]
+ui = []
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+    "pre-commit>=3.6",
+]
+all = ["kiln-cli[train,serve,ui]"]
+
+[project.scripts]
+kiln = "kiln.cli:run"
+
+[project.urls]
+Homepage = "https://github.com/kiln-ai/kiln"
+
+[tool.hatch.version]
+path = "src/kiln/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kiln"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "smoke: slow tests that download models or use a GPU (deselected by default)",
+]
+
+[tool.coverage.run]
+source = ["src/kiln"]

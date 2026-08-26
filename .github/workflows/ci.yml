@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    name: py${{ matrix.python }} · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: uv pip install -e ".[dev]" --system
+      - name: Lint
+        run: ruff check src/kiln/ tests/
+      - name: Test (fast suite)
+        run: pytest tests/ -v --tb=short
+
+  startup-light-probe:
+    # Dedicated job so a heavy-dep leak can never hide behind other failures.
+    name: startup light probe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv pip install -e ".[dev]" --system
+      - run: pytest tests/test_cli_startup_is_light.py tests/test_supervisor_import_safety.py -v
