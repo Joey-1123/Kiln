@@ -94,3 +94,32 @@ transport; live HF download deferred to first real use).
 
 **Milestone 3 status: COMPLETE**
 
+---
+
+## Milestone 4 — Serve
+
+### Delivered
+
+| Component | File(s) |
+|---|---|
+| Message protocol | `engine/messages.py` |
+| Capability matrix | `engine/backends/__init__.py` |
+| CUDA backend | `engine/backends/cuda_native.py` |
+| CPU backend | `engine/backends/llama_cpp.py` |
+| Engine loop | `engine/engine.py` |
+| Gateway (FastAPI) | `engine/gateway.py` |
+| Supervisor | `engine/supervisor.py` |
+| CLI serve command | `cli.py` |
+| Tests | `test_messages.py`, `test_backends.py`, `test_engine.py`, `test_supervisor.py`, `test_gateway.py` |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `pytest tests/ -v` | ✅ 131 passed |
+| `ruff check src/kiln/ tests/` | ✅ All checks passed |
+| Startup-light probe suite | ✅ Still green (torch-free imports verified) |
+| `kiln serve --help` | ✅ Shows serve options (--model, --config, --host, --port, --supervisor) |
+
+**Milestone 4 status: COMPLETE**
+

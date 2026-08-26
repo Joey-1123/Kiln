@@ -105,4 +105,36 @@ Running record of what was done, newest at the bottom of each section.
 - **Tests**: 46 new tests across 5 test files (budget, config_sha, tracker, ship_verdict,
   compat). All 86 tests pass. Ruff clean. Startup-light probe green.
 
+---
+
+## Milestone 4 — Serve
+
+### 2026-08-26
+
+- **Message protocol** (`engine/messages.py`): typed frozen dataclasses for gateway↔engine
+  communication (GenerateRequest, TokenDelta, GenerateComplete, GenerateError, HealthCheck,
+  HealthResponse, LoadModelRequest, ModelLoaded). Serialize/deserialize with `__type__`
+  discriminator, injection guard (rejects unknown types), numpy-safe codec. Transport seam
+  via Protocol (QueueTransport ships as V1 default).
+- **Capability matrix** (`engine/backends/__init__.py`): BackendInfo frozen dataclass with
+  declarative flags (supports_gpu, supports_nf4, supports_gguf, etc.). Registry with
+  register/get/list/select. GPU-preferring auto-selection.
+- **CUDA backend** (`engine/backends/cuda_native.py`): CUDABackend with lazy torch imports,
+  NF4 quantization via BitsAndBytesConfig, generate + generate_stream.
+- **CPU backend** (`engine/backends/llama_cpp.py`): CPUBackend with lazy llama_cpp import,
+  GGUF support, generate + generate_stream.
+- **Engine loop** (`engine/engine.py`): Engine class dispatching GenerateRequest/HealthCheck/
+  LoadModelRequest via transport. Streaming via thread pool executor. Prompt formatting
+  (chat messages → prompt string).
+- **Gateway** (`engine/gateway.py`): FastAPI app with OpenAI-compatible `/v1/chat/completions`,
+  Anthropic-compatible `/v1/messages`, `/v1/models`, `/v1/load`, `/health`. SSE streaming
+  with 15s keepalive pings. Auth middleware (X-API-Token). Error envelopes.
+- **Supervisor** (`engine/supervisor.py`): Torch-free supervisor, separate process from day 1.
+  Ready-ack protocol over stdout. Auto-restart with max_restarts. Signal handling.
+- **CLI** (`kiln serve`): `--model/--config/--host/--port/--supervisor`. Single-process fused
+  mode (A1 amendment) with engine running alongside gateway. Supervisor mode spawns separate
+  engine process.
+- **Tests**: 45 new tests across 5 test files (messages, backends, engine, supervisor,
+  gateway). All 131 tests pass. Ruff clean. Startup-light probe green.
+
 

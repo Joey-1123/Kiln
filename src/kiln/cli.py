@@ -31,7 +31,6 @@ console = Console()
 # Stubs that arrive in later milestones, listed for --help discoverability.
 _NOT_IMPLEMENTED = {
     "init": "Milestone 1 (wizard lands with config templates)",
-    "serve": "Milestone 4",
     "chat": "Milestone 6",
     "export": "Milestone 5",
 }
@@ -273,9 +272,85 @@ def train(
 @app.command()
 def serve(
     model: Annotated[Optional[str], typer.Option("--model", "-m")] = None,
+    config: Annotated[Optional[str], typer.Option("--config", "-c")] = None,
+    host: Annotated[str, typer.Option("--host")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port")] = 8000,
+    supervisor: Annotated[
+        bool, typer.Option("--supervisor/--no-supervisor")
+    ] = False,
 ) -> None:
     """Start the OpenAI/Anthropic-compatible API server."""
-    _stub_exit("serve")
+    import asyncio
+    import sys
+
+    import uvicorn
+
+    from kiln.engine.backends.cuda_native import register as register_cuda
+    from kiln.engine.backends.llama_cpp import register as register_cpu
+    from kiln.engine.engine import Engine
+    from kiln.engine.gateway import create_gateway
+    from kiln.engine.messages import QueueTransport
+
+    # Register backends (never imports torch/llama_cpp)
+    register_cuda()
+    register_cpu()
+
+    model_name = model or "default"
+
+    # Load config for serve settings if provided
+    api_token = None
+    if config:
+        try:
+            from kiln.config.schema import load_config
+            cfg = load_config(config)
+            host = cfg.recipe.serve.host
+            port = cfg.recipe.serve.port
+        except Exception as exc:
+            console.print(f"[yellow]Warning: could not load config: {exc}[/yellow]")
+
+    # If supervisor mode, start engine as a separate process
+    if supervisor:
+        from kiln.engine.supervisor import run_supervisor
+        console.print("[dim]Starting in supervisor mode...[/dim]")
+        engine_cmd = [sys.executable, "-m", "kiln.engine.engine"]
+        run_supervisor(engine_cmd)
+        return
+
+    # Single-process mode: gateway + engine fused (A1 amendment)
+    engine_out = QueueTransport()  # engine → gateway
+    gw_out = QueueTransport()  # gateway → engine
+
+    engine = Engine(gateway_transport=gw_out, engine_transport=engine_out)
+    gw_transport = QueueTransport()  # gateway HTTP → engine
+
+    app = create_gateway(
+        transport=gw_transport,
+        model_name=model_name,
+        api_token=api_token,
+        response_transport=engine_out,
+    )
+
+    console.print(f"[green]Kiln server starting on {host}:{port}[/green]")
+    console.print(f"[dim]Docs: http://{host}:{port}/docs[/dim]")
+    console.print("[dim]Press Ctrl-C to stop.[/dim]")
+
+    config_uvicorn = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        log_level="info",
+    )
+    server = uvicorn.Server(config_uvicorn)
+
+    async def _run_all() -> None:
+        engine_task = asyncio.create_task(engine.run())
+        try:
+            await server.serve()
+        finally:
+            engine.stop()
+            engine_task.cancel()
+
+    asyncio.run(_run_all())
 
 
 @app.command()

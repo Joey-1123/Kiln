@@ -1,0 +1,238 @@
+"""Engine loop — pull-drain-decode-step (never blocks HTTP).
+
+The engine sits on the other side of the transport seam from the
+gateway.  It pulls messages, dispatches to the active backend, and
+pushes results back.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import Any
+
+from kiln.engine.backends import BackendInfo, select_backend
+from kiln.engine.messages import (
+    EngineMessage,
+    GenerateComplete,
+    GenerateError,
+    GenerateRequest,
+    HealthCheck,
+    HealthResponse,
+    LoadModelRequest,
+    ModelLoaded,
+    TokenDelta,
+    Transport,
+)
+
+log = logging.getLogger(__name__)
+
+
+class Engine:
+    """The engine half of the gateway↔engine pair.
+
+    Receives messages via transport, executes them, and sends responses
+    back via the same transport (bidirectional).
+    """
+
+    def __init__(
+        self,
+        *,
+        gateway_transport: Transport,
+        engine_transport: Transport,
+    ) -> None:
+        self._gw = gateway_transport  # receive from gateway
+        self._eng = engine_transport  # send to gateway
+        self._backend: Any = None
+        self._backend_info: BackendInfo | None = None
+        self._running = False
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    @property
+    def backend_info(self) -> BackendInfo | None:
+        return self._backend_info
+
+    async def run(self) -> None:
+        """Main engine loop.  Runs until stopped."""
+        self._running = True
+        log.info("Engine loop started")
+        try:
+            while self._running:
+                msg = await self._gw.get()
+                await self._dispatch(msg)
+        except asyncio.CancelledError:
+            log.info("Engine loop cancelled")
+        finally:
+            self._running = False
+            log.info("Engine loop stopped")
+
+    def stop(self) -> None:
+        """Signal the engine to stop after the current message."""
+        self._running = False
+
+    async def _dispatch(self, msg: EngineMessage) -> None:
+        """Dispatch a message to the appropriate handler."""
+        if isinstance(msg, GenerateRequest):
+            await self._handle_generate(msg)
+        elif isinstance(msg, HealthCheck):
+            await self._handle_health(msg)
+        elif isinstance(msg, LoadModelRequest):
+            await self._handle_load_model(msg)
+        else:
+            log.warning("Unknown message type: %s", type(msg).__name__)
+
+    async def _handle_generate(self, req: GenerateRequest) -> None:
+        """Handle a generation request."""
+        if self._backend is None:
+            await self._eng.put(GenerateError(
+                request_id=req.request_id,
+                error_code="model_not_loaded",
+                error_message="No model loaded. Send LoadModelRequest first.",
+            ))
+            return
+
+        try:
+            if req.stream:
+                await self._handle_generate_stream(req)
+            else:
+                await self._handle_generate_sync(req)
+        except Exception as exc:
+            log.exception("Generation failed for request %s", req.request_id)
+            await self._eng.put(GenerateError(
+                request_id=req.request_id,
+                error_code="internal_error",
+                error_message=str(exc),
+            ))
+
+    async def _handle_generate_sync(self, req: GenerateRequest) -> None:
+        """Non-streaming generation."""
+        loop = asyncio.get_event_loop()
+        # Run blocking generation in thread pool to not block the event loop
+        text = await loop.run_in_executor(
+            None,
+            lambda: self._backend.generate(
+                self._messages_to_prompt(req),
+                max_tokens=req.max_tokens,
+                temperature=req.temperature,
+                top_p=req.top_p,
+                stop=req.stop,
+            ),
+        )
+        await self._eng.put(GenerateComplete(
+            request_id=req.request_id,
+            text=text,
+            finish_reason="stop",
+        ))
+
+    async def _handle_generate_stream(self, req: GenerateRequest) -> None:
+        """Streaming generation — yields TokenDelta messages."""
+        loop = asyncio.get_event_loop()
+        prompt = self._messages_to_prompt(req)
+
+        # Run the streaming generator in a thread
+        def _stream_tokens():
+            return list(self._backend.generate_stream(
+                prompt,
+                max_tokens=req.max_tokens,
+                temperature=req.temperature,
+                top_p=req.top_p,
+                stop=req.stop,
+            ))
+
+        token_pairs = await loop.run_in_executor(None, _stream_tokens)
+
+        for token_text, finish_reason in token_pairs:
+            await self._eng.put(TokenDelta(
+                request_id=req.request_id,
+                token=token_text,
+                finish_reason=finish_reason,
+            ))
+
+        # If no finish_reason was sent via TokenDelta, send complete
+        await self._eng.put(GenerateComplete(
+            request_id=req.request_id,
+            text="",
+            finish_reason="stop",
+        ))
+
+    async def _handle_health(self, req: HealthCheck) -> None:
+        """Handle a health check."""
+        model_loaded = self._backend is not None and self._backend.is_loaded
+        backend_name = self._backend_info.name if self._backend_info else ""
+        await self._eng.put(HealthResponse(
+            request_id=req.request_id,
+            status="ok",
+            model_loaded=model_loaded,
+            backend=backend_name,
+        ))
+
+    async def _handle_load_model(self, req: LoadModelRequest) -> None:
+        """Load a model into the backend."""
+        loop = asyncio.get_event_loop()
+
+        # Select backend if not already chosen
+        if self._backend_info is None:
+            prefer = req.backend or ""
+            info = select_backend(prefer=prefer)
+            if info is None:
+                await self._eng.put(GenerateError(
+                    request_id=req.request_id,
+                    error_code="no_backend",
+                    error_message="No suitable backend found for the given constraints.",
+                ))
+                return
+            self._backend_info = info
+
+        try:
+            # Lazy import and instantiate the backend
+            await loop.run_in_executor(
+                None, self._load_backend, req.model_path, req.backend
+            )
+            await self._eng.put(ModelLoaded(
+                request_id=req.request_id,
+                model_path=req.model_path,
+                backend=self._backend_info.name,
+            ))
+        except Exception as exc:
+            log.exception("Model load failed")
+            await self._eng.put(GenerateError(
+                request_id=req.request_id,
+                error_code="load_failed",
+                error_message=str(exc),
+            ))
+
+    def _load_backend(self, model_path: str, backend_hint: str) -> None:
+        """Load a model into the appropriate backend (blocking)."""
+        if self._backend_info is not None and self._backend_info.name == "cuda":
+            from kiln.engine.backends.cuda_native import CUDABackend
+
+            b = CUDABackend()
+            b.load_model(model_path)
+            self._backend = b
+        elif self._backend_info is not None and self._backend_info.name == "cpu":
+            from kiln.engine.backends.llama_cpp import CPUBackend
+
+            b = CPUBackend()
+            b.load_model(model_path)
+            self._backend = b
+        else:
+            raise RuntimeError(f"Unknown backend: {self._backend_info}")
+
+    @staticmethod
+    def _messages_to_prompt(req: GenerateRequest) -> str:
+        """Convert chat messages to a single prompt string."""
+        parts: list[str] = []
+        for msg in req.messages:
+            if msg.role == "system":
+                parts.append(f"<|system|>\n{msg.content}\n")
+            elif msg.role == "user":
+                parts.append(f"<|user|>\n{msg.content}\n")
+            elif msg.role == "assistant":
+                parts.append(f"<|assistant|>\n{msg.content}\n")
+            elif msg.role == "tool":
+                parts.append(f"<|tool|>\n{msg.content}\n")
+        parts.append("<|assistant|>\n")
+        return "".join(parts)

@@ -26,3 +26,6 @@ implementation-level decisions made while building.
 | M3-D3 | 2026-08-26 | Tracker uses WAL mode + busy_timeout=10s + BEGIN IMMEDIATE for write serialization | Concurrent kiln processes (e.g. supervisor + CLI) may open the same DB; WAL gives concurrent reads, IMMEDIATE gives serialized writes | Accepted |
 | M3-D4 | 2026-08-26 | ship_verdict uses per-metric higher_is_better dict, defaults to True | Flexibility for metrics like loss where lower is better; no hardcoded assumptions about metric direction | Accepted |
 | M3-D5 | 2026-08-26 | CLI train command accepts --mode sft|dpo flag rather than separate subcommands | Keeps the command surface flat; mode selection is a single parameter, not a branching UX | Accepted |
+| M4-D1 | 2026-08-26 | NF4-only for V1; base model stays frozen; VRAM formula reuses M3 budget module | Keeps V1 scope tight; NF4 covers consumer GPUs; full quantization matrix deferred | Accepted |
+| M4-D2 | 2026-08-26 | Gateway message codec: numpy-only, torch-free, __type__ injection guard on deserialize | Prevents client-injected type discrimination; keeps wire format safe for future ZMQ split | Accepted |
+| M4-D3 | 2026-08-26 | Gateway uses on_event startup for response listener, not lifespan | Simpler; lifespan migration deferred to when FastAPI version forces it | Accepted |
