@@ -137,4 +137,26 @@ Running record of what was done, newest at the bottom of each section.
 - **Tests**: 45 new tests across 5 test files (messages, backends, engine, supervisor,
   gateway). All 131 tests pass. Ruff clean. Startup-light probe green.
 
+---
+
+## Milestone 5 — Serve-anywhere
+
+### 2026-08-26
+
+- **M5 implementation.** GGUF export, doctor, plan commands.
+- **GGUF export** (`export/__init__.py`): auto-downloads llama.cpp (pinned tag `b5270`) to
+  `~/.kiln/llama.cpp/`, builds `llama-quantize` + `convert_hf_to_gguf.py` via cmake. 2-stage
+  pipeline: convert HF→f16 GGUF, then quantize to target. Supports Q4_K_M, Q5_K_M, Q8_0, F16.
+  Custom `--llama-cpp-dir` override for users who build their own.
+- **Doctor** (`doctor/__init__.py`): quick mode (default) checks Python, platform, GPU (nvidia-smi),
+  RAM (psutil), disk, 13 dependencies. Deep mode (`--deep`) adds engine binary checks
+  (llama.cpp, CUDA backend). Structured JSON via `--json`. Exit code 0=healthy, 1=issues.
+- **Plan** (`plan/__init__.py`): detects GPU VRAM, RAM, disk; recommends backend (cuda/cpu) and
+  quantization level based on hardware. `--json` for structured output. `--write-config` writes
+  suggested backend/quantization to a kiln.yaml file (merges with existing config).
+- **CLI**: `export-gguf` replaces the old export stub. `doctor` and `plan` replaced with real
+  implementations (--deep/--json/--write-config flags). Removed from `_NOT_IMPLEMENTED`.
+- **Tests**: 31 new tests across 3 files (test_export, test_doctor, test_plan). All 162 tests
+  pass. Ruff clean. Startup-light probe green.
+
 

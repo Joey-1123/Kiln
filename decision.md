@@ -29,3 +29,7 @@ implementation-level decisions made while building.
 | M4-D1 | 2026-08-26 | NF4-only for V1; base model stays frozen; VRAM formula reuses M3 budget module | Keeps V1 scope tight; NF4 covers consumer GPUs; full quantization matrix deferred | Accepted |
 | M4-D2 | 2026-08-26 | Gateway message codec: numpy-only, torch-free, __type__ injection guard on deserialize | Prevents client-injected type discrimination; keeps wire format safe for future ZMQ split | Accepted |
 | M4-D3 | 2026-08-26 | Gateway uses on_event startup for response listener, not lifespan | Simpler; lifespan migration deferred to when FastAPI version forces it | Accepted |
+| M5-D1 | 2026-08-26 | Auto-download llama.cpp to `~/.kiln/llama.cpp/`, pinned tag `b5270`, build via cmake | Soup pattern; auto-build removes user friction; pinned tag for reproducibility | Accepted |
+| M5-D2 | 2026-08-26 | GGUF export supports only Q4_K_M, Q5_K_M, Q8_0, F16; advanced IQ/UD ladder deferred to V2 | Standard quantizations cover 90% of use cases; advanced quants need imatrix calibration pipeline | Accepted |
+| M5-D3 | 2026-08-26 | Doctor quick mode = dependency/GPU/RAM checks; deep mode adds engine binary + CUDA backend checks | Hybrid approach: Soup-style quick checks + Colibri-style deep validation | Accepted |
+| M5-D4 | 2026-08-26 | Plan command writes merged config via `--write-config` rather than creating fresh | Respects existing user config; merges only backend/quantization fields | Accepted |

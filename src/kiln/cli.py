@@ -1,7 +1,5 @@
 """Kiln CLI — Typer application shell.
 
-Milestone 1: command surface exists as stubs; every command returns a proper
-semantic exit code and nothing imports heavy dependencies at module scope.
 All command modules are registered eagerly here so the startup-light probe's
 single import assertion covers the whole surface.
 """
@@ -10,7 +8,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 import typer
 from rich.console import Console
@@ -32,7 +30,6 @@ console = Console()
 _NOT_IMPLEMENTED = {
     "init": "Milestone 1 (wizard lands with config templates)",
     "chat": "Milestone 6",
-    "export": "Milestone 5",
 }
 
 
@@ -360,15 +357,106 @@ def chat(model: Annotated[Optional[str], typer.Option("--model", "-m")] = None) 
 
 
 @app.command()
-def doctor() -> None:
+def doctor(
+    deep: Annotated[
+        bool, typer.Option("--deep", help="Full validation including engine binaries.")
+    ] = False,
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Structured JSON output.")
+    ] = False,
+) -> None:
     """Check GPU / memory / deps / environment readiness."""
-    _stub_exit("doctor")
+    from kiln.doctor import run_doctor
+
+    report = run_doctor(deep=deep)
+
+    if json_output:
+        import json as json_mod
+        console.print(json_mod.dumps(report.to_dict(), indent=2))
+    else:
+        _print_doctor_report(report)
+
+    if report.status == "fail":
+        raise typer.Exit(exitcodes.RUNTIME)
+    raise typer.Exit(exitcodes.OK)
+
+
+def _print_doctor_report(report: Any) -> None:
+    from rich.panel import Panel
+    from rich.table import Table
+
+    status_color = {"pass": "green", "warn": "yellow", "fail": "red"}.get(
+        report.status, "dim"
+    )
+    console.print(
+        Panel(
+            f"Status: [{status_color}]{report.status.upper()}[/]",
+            title="Kiln Doctor",
+        )
+    )
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Check")
+    table.add_column("Status", justify="center")
+    table.add_column("Summary")
+
+    for check in report.checks:
+        color = {"pass": "green", "warn": "yellow", "fail": "red", "skip": "dim"}.get(
+            check.status, "dim"
+        )
+        table.add_row(
+            check.id,
+            f"[{color}]{check.status.upper()}[/]",
+            check.summary,
+        )
+
+    console.print(table)
+
+    fails = [c for c in report.checks if c.status == "fail"]
+    if fails:
+        console.print(f"\n[red]{len(fails)} issue(s) found.[/]")
 
 
 @app.command()
-def plan() -> None:
+def plan(
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Structured JSON output.")
+    ] = False,
+    write_config: Annotated[
+        Optional[str],
+        typer.Option("--write-config", help="Write suggested config to this path."),
+    ] = None,
+) -> None:
     """Show what this machine can run before downloading anything."""
-    _stub_exit("plan")
+    from kiln.plan import build_plan, format_plan
+
+    result = build_plan()
+
+    if json_output:
+        import json as json_mod
+        console.print(json_mod.dumps(result.to_dict(), indent=2))
+    else:
+        console.print(format_plan(result))
+
+    if write_config:
+        import yaml
+
+        cfg_path = Path(write_config)
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+
+        existing: dict = {}
+        if cfg_path.is_file():
+            with open(cfg_path) as f:
+                existing = yaml.safe_load(f) or {}
+
+        existing.setdefault("serving", {})
+        existing["serving"]["backend"] = result.backend
+        existing["serving"]["quantization"] = result.quant_recommendation
+
+        with open(cfg_path, "w") as f:
+            yaml.dump(existing, f, default_flow_style=False)
+
+        console.print(f"\n[green]Config written to {cfg_path}[/green]")
 
 
 @app.command()
@@ -487,12 +575,47 @@ def merge(
 
 
 @app.command()
-def export(
-    model: str,
-    format: Annotated[str, typer.Option("--format", "-f")] = "gguf",
+def export_gguf(
+    model_dir: Annotated[str, typer.Argument(help="Path to merged HF model directory")],
+    output_dir: Annotated[str, typer.Option("--output-dir", "-o")] = "./gguf",
+    quant: Annotated[str, typer.Option("--quant", "-q")] = "Q4_K_M",
+    llama_cpp_dir: Annotated[
+        Optional[str],
+        typer.Option("--llama-cpp-dir", help="Path to llama.cpp (auto-downloaded if omitted)."),
+    ] = None,
 ) -> None:
-    """Export a model/adapter to another format."""
-    _stub_exit("export")
+    """Export a merged HF model to quantized GGUF for CPU serving."""
+    from kiln.export import export_gguf as do_export
+    from kiln.export import list_quantizations
+
+    if quant not in list_quantizations():
+        console.print(
+            f"[red]Unknown quantization {quant!r}. "
+            f"Available: {', '.join(list_quantizations())}[/red]"
+        )
+        raise typer.Exit(exitcodes.USAGE)
+
+    try:
+        result = do_export(
+            model_dir=model_dir,
+            output_dir=output_dir,
+            quant=quant,
+            llama_cpp_dir=llama_cpp_dir,
+        )
+        size_mb = result.size_bytes / (1024 * 1024)
+        console.print(
+            f"[green]Exported {result.quant} GGUF:[/green] "
+            f"{result.output_path} ({size_mb:.1f} MB)"
+        )
+    except FileNotFoundError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(exitcodes.USAGE)
+    except Exception as exc:
+        friendly = map_exception(exc)
+        console.print(f"[red]{friendly.message}[/red]")
+        if friendly.hint:
+            console.print(f"[dim]{friendly.hint}[/dim]")
+        raise typer.Exit(friendly.exit_code)
 
 
 def run() -> None:

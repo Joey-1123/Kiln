@@ -123,3 +123,30 @@ transport; live HF download deferred to first real use).
 
 **Milestone 4 status: COMPLETE**
 
+---
+
+## Milestone 5 — Serve-anywhere
+
+### Delivered
+
+| Component | File(s) |
+|---|---|
+| GGUF export | `export/__init__.py` |
+| Doctor (quick+deep) | `doctor/__init__.py` |
+| Plan (recommend+write) | `plan/__init__.py` |
+| CLI commands | `cli.py` (export-gguf, doctor, plan) |
+| Tests | `test_export.py`, `test_doctor.py`, `test_plan.py` |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `pytest tests/ -v` | ✅ 162 passed |
+| `ruff check src/kiln/ tests/` | ✅ All checks passed |
+| Startup-light probe suite | ✅ Still green (torch-free imports verified) |
+| `kiln export-gguf --help` | ✅ Shows GGUF export options (--quant, --output-dir, --llama-cpp-dir) |
+| `kiln doctor --help` | ✅ Shows doctor options (--deep, --json) |
+| `kiln plan --help` | ✅ Shows plan options (--json, --write-config) |
+
+**Milestone 5 status: COMPLETE**
+
