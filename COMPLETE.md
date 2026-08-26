@@ -150,3 +150,35 @@ transport; live HF download deferred to first real use).
 
 **Milestone 5 status: COMPLETE**
 
+---
+
+## Milestone 6 — Surfaces
+
+**Goal**: Interactive chat TUI, MCP stdio server, env-var inventory generator (A6).
+
+### Delivered
+
+| Component | File | Status |
+|---|---|---|
+| Chat TUI client | `src/kiln/chat/__init__.py` | ✅ Full prompt_toolkit REPL, streaming, commands |
+| MCP stdio server | `src/kiln/mcp_server/__init__.py` | ✅ 6 tools, mcp SDK 2.x MCPServer |
+| Env-inventory (A6) | `src/kiln/env_inventory/__init__.py` | ✅ AST scanner + drift detection |
+| CLI: chat | `src/kiln/cli.py` `chat` | ✅ --model, --server flags |
+| CLI: mcp serve | `src/kiln/cli.py` `mcp serve` | ✅ stdio transport |
+| CLI: env scan/drift | `src/kiln/cli.py` `env scan`, `env drift` | ✅ scan + drift check |
+| Tests | `tests/test_chat.py`, `tests/test_mcp_server.py`, `tests/test_env_inventory.py` | ✅ 45 new tests |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `pytest tests/ -v` | ✅ 207 passed |
+| `ruff check src/kiln/ tests/` | ✅ All checks passed |
+| Startup-light probe suite | ✅ Still green (torch-free imports verified) |
+| `kiln chat --help` | ✅ Shows chat options (--model, --server) |
+| `kiln mcp serve --help` | ✅ Shows MCP serve command |
+| `kiln env scan --help` | ✅ Shows env scan options (--output, --include-tests) |
+| `kiln env drift --help` | ✅ Shows env drift options (--path) |
+
+**Milestone 6 status: COMPLETE**
+

@@ -159,4 +159,24 @@ Running record of what was done, newest at the bottom of each section.
 - **Tests**: 31 new tests across 3 files (test_export, test_doctor, test_plan). All 162 tests
   pass. Ruff clean. Startup-light probe green.
 
+---
+
+## Milestone 6 — Surfaces (2026-08-26)
+
+**Goal**: Interactive chat TUI, MCP stdio server, env-var inventory generator (A6).
+
+- **TUI Chat** (`src/kiln/chat/__init__.py`): Full prompt_toolkit REPL with streaming SSE responses via `/v1/chat/completions`. Commands: `/quit`, `/exit`, `/q`, `/clear`, `/system [text]`, `/history`, `/help`. Client mode connects to a running `kiln serve` instance (default `http://localhost:8080`, override with `--server`). Graceful error handling for connection failures (Colibri pattern), Ctrl-C cancels generation mid-stream. `run_chat()` entry point.
+- **MCP stdio server** (`src/kiln/mcp_server/__init__.py`): Uses mcp SDK 2.x `MCPServer` with `@server.tool()` decorators. Tools exposed: `kiln_plan`, `kiln_doctor`, `kiln_fetch`, `kiln_export_gguf`, `kiln_data_lint`, `kiln_data_stats`. All torch-free. `build_server()` returns configured server for testability; `run_stdio()` for transport.
+- **Env-inventory (A6)** (`src/kiln/env_inventory/__init__.py`): AST scanner for `os.environ[...]`, `os.getenv(...)`, `os.environ.get(...)`. Produces JSON manifest with source locations + defaults. `detect_drift()` compares manifest against current scan. `scan_directory()` excludes `.git`, `__pycache__`, `.venv`, etc.
+- **CLI wiring** (`src/kiln/cli.py`): `chat` command (--model, --server), `mcp serve` subcommand, `env scan` + `env drift` subcommands. Removed `chat` from `_NOT_IMPLEMENTED`. Added `import asyncio` for mcp serve.
+- **Dependencies**: Installed `prompt_toolkit==3.0.53`, `mcp==2.1.1` (renamed FastMCP→MCPServer in v2.x). Updated dev deps via uv.
+- **Tests**: 45 new tests across 3 files (test_chat, test_mcp_server, test_env_inventory). All 207 tests pass. Ruff clean. Startup-light probe green.
+
+**M6 Decisions**:
+- M6-D1: Chat TUI uses prompt_toolkit for line editing (history, Vi/Emacs bindings) — Soup/Colibri pattern
+- M6-D2: MCP server uses stdio transport (V1); full HTTP/SSE MCP deferred to V2
+- M6-D3: Env-inventory is pure AST (no execution) — safe for CI drift checks
+- M6-D4: MCP tools are read-only for plan/doctor/data; fetch/export are side-effecting (openWorldHint set)
+
+
 

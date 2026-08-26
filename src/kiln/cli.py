@@ -6,6 +6,7 @@ single import assertion covers the whole surface.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Annotated, Any, Optional
@@ -29,7 +30,6 @@ console = Console()
 # Stubs that arrive in later milestones, listed for --help discoverability.
 _NOT_IMPLEMENTED = {
     "init": "Milestone 1 (wizard lands with config templates)",
-    "chat": "Milestone 6",
 }
 
 
@@ -351,9 +351,118 @@ def serve(
 
 
 @app.command()
-def chat(model: Annotated[Optional[str], typer.Option("--model", "-m")] = None) -> None:
-    """Chat with a model interactively."""
-    _stub_exit("chat")
+def chat(
+    model: Annotated[Optional[str], typer.Option("--model", "-m")] = None,
+    server: Annotated[
+        str, typer.Option("--server", help="Server URL to connect to.")
+    ] = "http://localhost:8080",
+) -> None:
+    """Chat with a model interactively via the running server."""
+    from kiln.chat import run_chat
+
+    run_chat(server_url=server, model=model)
+
+
+mcp_app = typer.Typer(help="MCP server commands.", no_args_is_help=True)
+app.add_typer(mcp_app, name="mcp")
+
+
+@mcp_app.command("serve")
+def mcp_serve() -> None:
+    """Start the Kiln MCP server on stdio transport."""
+    from kiln.mcp_server import run_stdio
+
+    asyncio.run(run_stdio())
+
+
+env_app = typer.Typer(help="Environment variable inventory.", no_args_is_help=True)
+app.add_typer(env_app, name="env")
+
+
+@env_app.command("scan")
+def env_scan(
+    path: Annotated[
+        str, typer.Argument(help="Directory or file to scan.")
+    ] = "src/kiln",
+    output: Annotated[
+        Optional[str],
+        typer.Option("--output", "-o", help="Write manifest JSON to this path."),
+    ] = None,
+    include_tests: Annotated[
+        bool, typer.Option("--include-tests", help="Include tests/ directory.")
+    ] = False,
+) -> None:
+    """Scan Python files for env var usage (os.environ, os.getenv, etc.)."""
+    from kiln.env_inventory import scan_directory, scan_file, write_manifest
+
+    target = Path(path)
+    if target.is_file():
+        from kiln.env_inventory import EnvInventory
+        usages = scan_file(str(target))
+        inventory = EnvInventory(
+            variables=usages,
+            source_root=str(target),
+            file_count=1,
+        )
+    elif target.is_dir():
+        inventory = scan_directory(
+            str(target),
+            include_tests=include_tests,
+        )
+    else:
+        console.print(f"[red]Path not found: {path}[/red]")
+        raise typer.Exit(exitcodes.USAGE)
+
+    console.print(
+        f"[dim]Scanned {inventory.file_count} files, "
+        f"found {len(inventory.variables)} env var usages "
+        f"across {len(inventory.unique_vars())} unique variables.[/dim]"
+    )
+
+    if output:
+        write_manifest(inventory, output)
+        console.print(f"[green]Manifest written to {output}[/green]")
+    else:
+        # Pretty print to console
+        for name, info in sorted(inventory.unique_vars().items()):
+            default_str = f" (default={info['default']})" if info.get("default") else ""
+            console.print(f"  {name}{default_str}")
+            for src in info["sources"]:
+                console.print(f"    {src['file']}:{src['line']} [{src['accessor']}]")
+
+
+@env_app.command("drift")
+def env_drift(
+    manifest: Annotated[str, typer.Argument(help="Path to manifest JSON file.")],
+    path: Annotated[
+        str, typer.Option("--path", help="Directory to scan.")
+    ] = "src/kiln",
+) -> None:
+    """Compare a saved manifest against current env var usage."""
+    from kiln.env_inventory import detect_drift, scan_directory
+
+    inventory = scan_directory(path)
+    result = detect_drift(manifest, inventory)
+
+    if result["status"] == "error":
+        console.print(f"[red]{result['message']}[/red]")
+        raise typer.Exit(exitcodes.RUNTIME)
+
+    if not result["drifted"]:
+        console.print(
+            f"[green]No drift detected.[/green] "
+            f"Manifest has {result['old_count']} vars, codebase has {result['new_count']}."
+        )
+        return
+
+    console.print("[yellow]Drift detected![/yellow]")
+    console.print(f"  Old manifest: {result['old_count']} vars")
+    console.print(f"  Current:      {result['new_count']} vars")
+    if result["added"]:
+        console.print(f"  [green]Added:[/green] {', '.join(result['added'])}")
+    if result["removed"]:
+        console.print(f"  [red]Removed:[/red] {', '.join(result['removed'])}")
+    raise typer.Exit(exitcodes.VERDICT_FAIL)
 
 
 @app.command()

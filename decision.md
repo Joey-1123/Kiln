@@ -33,3 +33,7 @@ implementation-level decisions made while building.
 | M5-D2 | 2026-08-26 | GGUF export supports only Q4_K_M, Q5_K_M, Q8_0, F16; advanced IQ/UD ladder deferred to V2 | Standard quantizations cover 90% of use cases; advanced quants need imatrix calibration pipeline | Accepted |
 | M5-D3 | 2026-08-26 | Doctor quick mode = dependency/GPU/RAM checks; deep mode adds engine binary + CUDA backend checks | Hybrid approach: Soup-style quick checks + Colibri-style deep validation | Accepted |
 | M5-D4 | 2026-08-26 | Plan command writes merged config via `--write-config` rather than creating fresh | Respects existing user config; merges only backend/quantization fields | Accepted |
+| M6-D1 | 2026-08-26 | Chat TUI uses prompt_toolkit (not raw input) for line editing + history + Vi/Emacs bindings | Soup/Colibri pattern; richer UX without extra deps; handles multiline gracefully | Accepted |
+| M6-D2 | 2026-08-26 | MCP server uses stdio transport in V1; HTTP/SSE MCP deferred to V2 | stdio is the dominant MCP client integration; keeps the server simple and embeddable | Accepted |
+| M6-D3 | 2026-08-26 | Env-inventory generator is pure AST (no code execution) — only scans source text | Safe for CI; cannot trigger side effects from scanned code; deterministic | Accepted |
+| M6-D4 | 2026-08-26 | MCP tools: plan/doctor/data are read-only (readOnlyHint=True); fetch/export are side-effecting (openWorldHint=True) | Correct capability advertisement to MCP clients; safe by default | Accepted |
