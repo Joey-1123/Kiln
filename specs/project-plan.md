@@ -1,7 +1,9 @@
-# FINAL PLAN — Kiln (v1.1, name locked)
+# FINAL PLAN — Kiln (v1.2)
 
 > Status: **FINAL** — brand = **Kiln**, package = **`kiln-cli`**, CLI = `kiln`.
-> Supersedes v1.0. All decisions locked.
+> v1.2: amendments A1–A6 from the post-audit comparison of all three references
+> (`specs/references-analysis.md` + audit reports; see §13).
+> Supersedes v1.0/v1.1. All decisions locked.
 > References analyzed: `references/{Soup,colibri,FreeToken}` · findings in `specs/references-analysis.md`
 > Engine-internals improvement track: **colibri** is the primary reference for memory-tiering /
 > streaming techniques we will borrow in V2/V3 (see §4 note + §11).
@@ -29,7 +31,7 @@ Positioning claims (each survives contact with reality):
 | D4 | GPU requirement | **Optional** for serve/chat/web/desktop/MCP; required-recommended for training >1B | First-class CPU-only users |
 | D5 | Training method | Soup ladder: QLoRA NF4 + peft/trl, SFT+DPO first; layer-streaming opt-in V2 | Proven; honest VRAM floors |
 | D6 | Correctness rule | Placement/quant changes speed, never tokens (colibri invariant); CI oracle gates | Trust is the product |
-| D7 | **Inference backends** | **Dual-backend:** CUDA path = native torch+Triton (safetensors, NF4/GPTQ); **CPU path = embedded llama.cpp via llama-cpp-python (GGUF)** behind one capability matrix | bnb-NF4/torchao are CUDA-only/shaky-on-Windows → pure-torch cannot honor D4 honestly; llama.cpp delivers proven CPU tok/s + entire GGUF ecosystem day 1. Matrix seam keeps it swappable. colibri's C engine is a reference for *future* internal improvements, not a direct dependency |
+| D7 | **Inference backends** | **Dual-backend:** CUDA path = native torch+Triton (safetensors, NF4/GPTQ); **CPU path = embedded llama.cpp via llama-cpp-python (GGUF)** behind one capability matrix. *A1 (v1.2): V1 gateway+engine fused in one process over asyncio.Queue typed messages with a transport seam; full ZMQ split deferred until MoE banks / TP>1 / high concurrency; torch-free supervisor stays a separate process* | bnb-NF4/torchao are CUDA-only/shaky-on-Windows → pure-torch cannot honor D4 honestly; llama.cpp delivers proven CPU tok/s + entire GGUF ecosystem day 1. Matrix seam keeps it swappable. colibri's C engine is a reference for *future* internal improvements, not a direct dependency |
 | D8 | Weight formats | Train/adapters: safetensors (HF). Serve-GPU: safetensors NF4/GPTQ/AWQ. Serve-CPU: GGUF. `x export gguf` bridges both worlds | One converter, no reinvention |
 | D9 | License | Apache-2.0 | Matches all three references |
 
@@ -51,29 +53,44 @@ Positioning claims (each survives contact with reality):
 │ UX: CLI (Typer) · TUI chat · Web chat+dashboard (React+Vite) │
 │     · Tauri v2 desktop shell (same web bundle)               │
 ├──────────────────────────────────────────────────────────────┤
-│ Gateway: FastAPI — OpenAI (/v1/chat/completions incl. tools) │
-│   + Anthropic (/v1/messages) + /health + /v1/models          │
-│   + MCP stdio server (generate/chat/status tools)            │
+│ Gateway+Engine: V1 = ONE process, two async halves over      │
+│   typed-dataclass messages on asyncio.Queue (A1); message    │
+│   codec is numpy-only / torch-free (A2); swapping Queue→ZMQ  │
+│   later = constructor change only. API: OpenAI               │
+│   (/v1/chat/completions incl. tools) + Anthropic             │
+│   (/v1/messages) + /health + /v1/models + MCP stdio server.  │
+│   Agent-compat rules (FreeToken lessons): Anthropic streams  │
+│   end on message_stop (no [DONE] sentinel), 15s SSE          │
+│   keepalive pings, error envelope not FastAPI detail,        │
+│   terminal-error-with-code guarantee.                        │
 │   Security: localhost bind default · startup API token ·     │
 │   MCP execute behind confirmation tokens (Soup pattern)      │
+│ Torch-free supervisor stays a SEPARATE process from day 1    │
+│   (ready-ack protocol; engine segfault can't kill control).  │
 ├──────────────────────────────────────────────────────────────┤
-│ Engine process (owns device): scheduler · KV cache · sampler │
-│   ⇄ ZMQ typed-dataclass messages (FreeToken topology)        │
+│ Engine loop: pull-drain-decode-step (never blocks HTTP)      │
 │   Backend selection = declarative capability matrix          │
+│   (BackendInfo pure-flag dataclass; registration never       │
+│   imports kernels)                                           │
 │   ├─ cuda: native torch+Triton · paged KV · NF4/GPTQ         │
 │   └─ cpu: llama.cpp (llama-cpp-python) · GGUF · mmap threads │
 ├──────────────────────────────────────────────────────────────┤
 │ Trainer (native torch only): sft.py/dpo.py wrappers on       │
 │   peft/trl · QLoRA NF4 · lazy heavy imports · eval gate      │
-│   run tracker (SQLite) · checkpoint/resume · loss UI feed    │
+│   run tracker (SQLite, WAL) · checkpoint/resume · loss feed  │
+│   Resume = HF Trainer checkpoint dirs, ORTHOGONAL to the     │
+│   tracker (tracker records outcomes; Trainer owns resume).   │
 ├──────────────────────────────────────────────────────────────┤
-│ Shared: Pydantic config schema (single source of truth) ·    │
-│   pure budget-math modules (torch-free) · friendly errors ·  │
-│   semantic exit codes · hub fetch/cache manager              │
+│ Shared: Pydantic config schema (single source of truth; CLI  │
+│   flags rebuild via model_dump() so validators re-run;       │
+│   recipe fields separated from gate/policy fields for        │
+│   config_sha) · torch-free budget math · friendly errors ·   │
+│   semantic exit codes (pinned by contract test) ·            │
+│   hub fetch/cache manager                                    │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Pattern sources: Soup → config discipline, lazy-import probe test, path containment, error mapping, exit codes, security gating. FreeToken → process topology, ZMQ typed messages, capability matrices, budget math. colibri → semantics invariant, oracle CI, doctor/plan/tune triad, generated docs.
+Pattern sources: Soup → config discipline, lazy-import probe test, path containment, error mapping, exit codes, security gating. FreeToken → typed messages, capability matrices, budget math, supervisor/daemon, agent-compat API details. colibri → semantics invariant, oracle CI, doctor/plan/tune triad, generated docs.
 
 ### V1 engine note
 CUDA runner executes HF `transformers` classes (free OLMoE/Qwen3-MoE support); CPU runner delegates to llama.cpp. Custom kernels/batching/expert-banks arrive V2+ behind the same interface and must match the transformers oracle token-for-token at temp 0.
@@ -97,16 +114,16 @@ Registry pattern: one package per arch (`models/<arch>/register.py`) + HF arch �
 
 ## 6. Roadmap
 
-### V1 — End-to-end loop (≈6 milestones, vertical slices)
-1. **Skeleton**: monorepo (src-layout, hatchling, extras `[train][serve][ui][dev]`), config schema v1, CLI shell, UTF-8/path utils, CI matrix (Win/Linux) incl. light-startup probe test.
+### V1 — End-to-end loop (6 vertical slices)
+1. **Skeleton**: monorepo (src-layout, hatchling, extras `[train][serve][ui][dev]`), config schema v1 (recipe fields separated from gate/policy fields), CLI shell, UTF-8/path utils, CI matrix (Win/Linux) incl. fresh-subprocess light-startup probe test **with control test** (probe must catch a seeded regression — AST/lint guards alone are insufficient, Soup shipped one past them). Exit-code taxonomy pinned by contract test. Changelog fragments + version-sync tests from commit #1.
 2. **Fetch & data**: `x fetch <model>` (HF hub, resume, gated-token via `x login`, disk preflight); `x data inspect/lint/preview` (Alpaca/ChatML/ShareGPT auto-detect, val-split).
-3. **Train**: SFT then DPO via QLoRA; run tracker + checkpoint resume; eval-gate `x ship` (exit 0/1/2/3); LoRA merge.
-4. **Serve**: FastAPI gateway + engine process (ZMQ split); CUDA backend (transformers+NF4); streaming SSE; `/health`; tool-pass-through chat templates.
-5. **Serve-anywhere**: llama.cpp CPU backend + GGUF loader/exporter (`x export gguf`); backend auto-selection; `doctor`/`plan`.
-6. **Surfaces**: TUI chat; React web chat; Tauri desktop wrapping dist; MCP stdio server; docs site skeleton.
+3. **Train**: SFT then DPO via QLoRA; run tracker (SQLite WAL + race-guarded migrations + orphaned-run reconcile by PID; resume stays HF-Trainer-native, orthogonal to tracker). Training landmine checklist baked in: seed applied *before* `get_peft_model`; construct `SFTConfig` directly (passing `TrainingArguments` silently drops `max_length`); trl compatibility via capability probes (`inspect.signature`), never version tables; DPO memory = 2× batch in VRAM preflight; NaN guard refuses final save; analytic VRAM preflight gate with `--allow-oom-attempt`. Eval-gate `x ship` (exit 0 SHIP / 2 DON'T-SHIP / 3 usage / 1 runtime); semantic config fingerprint (`config_sha`, recipe-only hash excluding gate policy). LoRA merge.
+4. **Serve**: FastAPI gateway + engine fused in ONE process as two async halves over typed-dataclass messages on `asyncio.Queue` behind a transport seam (`put()/get()` interface identical for Queue and ZMQ — A1); message codec numpy-only, torch-free (A2); typed-message wire round-trip tests incl. client-dict `__type__` injection guard. CUDA backend (transformers+NF4) selected via BackendInfo capability matrix. Streaming SSE with agent-compat rules (§4). Ready-ack torch-free supervisor as separate process from day 1.
+5. **Serve-anywhere**: llama.cpp CPU backend + GGUF loader/exporter (`x export gguf`); backend auto-selection; `doctor`/`plan` (doctor report schema: `{schema_version,status,checks:[{id,status∈pass|fail|warn|skip}],plan}` + mapped exit codes).
+6. **Surfaces**: TUI chat; React web chat; Tauri desktop wrapping dist; MCP stdio server; docs site skeleton. Env-inventory generator script scanning `os.environ` sites (A6 — write the automation colibri never did).
 
 ### V2 — 14B everywhere + smarter memory
-Layer-streaming opt-in training · CPU↔GPU offload banks · continuous batching + first fused Triton kernels · GPTQ/AWQ menu · elastic VRAM rebalance (`/v1/cache/rebuild`) · dashboard metrics (tok/s, TTFT, memory bars) · recipes catalog · adapter registry w/ lineage · xgrammar-backed JSON-schema/tool-constrained decoding · learned hot-cache (pin hot adapters/KV prefixes).
+Layer-streaming opt-in training (design adapter save/load with canonical key names from day 1 so this door stays cheap) · CPU↔GPU offload banks · continuous batching + first fused Triton kernels · GPTQ/AWQ menu · elastic VRAM rebalance (`/v1/cache/rebuild`; requires pools designed with rebuild() free-before-alloc + persisted baseline_free/weights_bytes captured at load in V1) · dashboard metrics (tok/s, TTFT, memory bars) · recipes catalog · adapter registry w/ lineage · xgrammar-backed JSON-schema/tool-constrained decoding · learned hot-cache (pin hot adapters/KV prefixes) · **early colibri mining starts cheap here**: tier.h LFRU placement (~100 LOC pure Python) + route_trace telemetry (.usage histogram, ~300 LOC); PILOT-style prefetch LAST (measurement-dependent, sometimes net-negative — always behind the capability matrix, gated by tune-style measurement; optimize cold-miss recall, not routing recall). Any expert-budget trimming lever is decode-only (colibri #292 prefill corruption).
 
 ### V3 — Big MoE era
 Expert banks + device-side LRU + bandwidth-adaptive q\* CPU/GPU split · optional NVMe tier cache plugin · big-MoE targets · MoE LoRA training · opportunistic multi-GPU inference · tool-call anchor checkpoints for agent reuse.
@@ -133,12 +150,13 @@ web/ (React+TS+Vite)  desktop/ (Tauri v2)  docs/  benchmarks/  specs/
 
 ## 8. Correctness & testing
 
-1. Oracle fixtures: tiny random-init checkpoints; **CPU-vs-GPU parity at temp 0** (GGUF path validated by logit-window tolerance + task-level equivalence where bit-exactness doesn't hold across formats — documented honestly per model card).
-2. Light-startup probe: heavy deps never load outside training commands.
-3. Contract tests: version sync, config round-trip, env-inventory generated from code.
-4. Eval gate before ship: task score + regression suites → exit codes.
-5. Benchmarks published as-written incl. failures.
+1. Oracle fixtures: tiny random-init checkpoints; **CPU-vs-GPU parity at temp 0** (GGUF path validated by logit-window tolerance + task-level equivalence where bit-exactness doesn't hold across formats — documented honestly per model card). Oracle runs at cache capacities {1, 2, 8} (eviction-on-every-expert is where placement bugs hide — colibri practice). Fixture *generation* (pinned torch, CI-only job) strictly separated from fixture *consumption* (torch-free pure-Python compare); fixtures regenerated in CI or the gate silently rots. Don't gate token-exactness under profilers/differing Triton autotune configs — pin them.
+2. Light-startup probe: fresh-subprocess `sys.modules` assertion + control test proving the probe catches a seeded regression; heavy deps never load outside training commands. Second import-sentinel probe for the torch-free supervisor package.
+3. Contract tests: version sync, config round-trip, env-inventory generated from code by a real script (A6), exit-code taxonomy, typed-message wire round-trips.
+4. Eval gate before ship: task score + regression suites → exit codes; evidence stamped with `{kiln_version, scorer_revision}` and `config_sha`; stale/mismatched evidence refuses to validate.
+5. Benchmarks published as-written incl. failures; rejected optimizations recorded with measurements (colibri ledger culture).
 6. **GPU CI**: self-hosted runner or cheap spot GPU (runpod/vast.ai) runs the CUDA smoke suite nightly; PR CI covers logic + CPU paths.
+7. Autotune/tuning skeleton borrowed from colibri when tuning arrives: tunable-key whitelist ∩ capability matrix, OutputDrift disqualification (any candidate that changes output tokens vs baseline is disqualified), safety gates, reverse-order confirmation, machine-fingerprint profiles with load-time re-admission.
 
 ## 9. Explicit non-goals (V1–V3)
 
@@ -167,3 +185,18 @@ Multimodal/vision/audio · cloud/training orchestration · multi-user teams/auth
 2. Spike (≤1 day): llama-cpp-python install on this Windows box + load a Q4 7B GGUF + measure tok/s → validates D7/Tier 2 before anything else is built on top.
 3. Scaffold config schema (`config/schema.py`) + CLI shell (`cli.py`) + CI matrix (Win/Linux).
 4. Keep `references/{Soup,colibri,FreeToken}` checked out for pattern lookup during implementation.
+
+---
+
+## 13. Amendments v1.2 (from post-audit comparison vs all three references)
+
+| # | Amendment | Rationale (evidence) |
+|---|---|---|
+| A1 | V1 gateway+engine fused in ONE process: two async halves over typed-dataclass messages on `asyncio.Queue` behind a transport seam; full ZMQ split deferred until MoE banks / TP>1 / >~16 concurrent streams; torch-free supervisor stays a separate process from day 1 | FreeToken itself ships an in-process offline mode (`scheduler/io.py`); 3-process split buys GIL/crash isolation that V1 doesn't need — supervisor already covers segfault survivability |
+| A2 | Message codec is numpy-only / torch-free; decide before freezing the message module | FreeToken's gateway accidentally imports torch via `message.utils` — coupling they can't undo |
+| A3 | Training landmine checklist baked into trainer design (seed before `get_peft_model`; construct `SFTConfig` directly; capability probes not version tables; DPO = 2× batch in VRAM preflight; NaN guard refuses final save) | Soup's sft.py/dpo.py bug history (#78, #353, #359); each cost a silent failure or wasted run |
+| A4 | Exit-code taxonomy pinned by contract test (0 SHIP / 2 DON'T-SHIP / 3 usage / 1 runtime); checkpoint resume stays HF-Trainer-native, orthogonal to the SQLite tracker (tracker: WAL + race-guarded migrations + orphan reconcile by PID) | Soup merged regression-fail with usage-error on exit 2 until v0.71.38; tracker/resume coupling was never Soup's design |
+| A5 | V2 colibri mining starts cheap & early: tier.h LFRU (~100 LOC pure Python) + route_trace telemetry (~300 LOC) adoptable incrementally; PILOT-style prefetch LAST and always behind the capability matrix (measurement-dependent win, sometimes net-negative); any expert-budget trimming is decode-only | colibri `tier.h`, `route_trace.h`, PILOT ledger docs, issue #292 prefill corruption |
+| A6 | Write the real env-inventory generator script colibri never automated (theirs is a manual/AI-assisted procedure despite "Generated" header); CI drift check | colibri `docs/MAINTAINING-DOCS.md`; scanning Python getenv sites is trivial by comparison |
+
+Also adopted from the audit (no decision change required): agent-compat API rules into §4 (Anthropic no-[DONE] sentinel, SSE keepalive pings, error envelope override, terminal-error-with-code guarantee, system-message hoisting, count_tokens off hot path); BackendInfo pure-flag capability registry pattern; ready-ack supervisor protocol; config fingerprint/provenance stamping; oracle multi-capacity gating; changelog fragments + version-sync tests from commit #1.
