@@ -32,3 +32,28 @@ What is finished and verified. An item moves here only after its verification co
 
 **Milestone 1 status: COMPLETE** (pending CI run on first push).
 
+## Milestone 2 — Fetch & Data
+
+- [x] `huggingface-hub` added to light core (lazy imports)
+- [x] `kiln login` — HF token storage (~/.kiln/token, 0600 POSIX, env precedence)
+- [x] `hub/preflight.py` — disk preflight with injectable free-space fn + safety margin
+- [x] `kiln fetch <model>` — size probe → preflight → resumable snapshot download
+- [x] `data/formats.py` — alpaca/chatml/sharegpt auto-detection, strict JSONL reader
+- [x] `data/lint.py` — no-loss-target / invalid-role / duplicates rules with row numbers
+- [x] `data/stats.py` — dataset statistics for `kiln data inspect`
+- [x] `kiln data {inspect,lint,preview}` wired into CLI; graceful Ctrl-C
+
+### Verification results (2026-08-26)
+
+| Check | Result |
+|---|---|
+| `pytest tests/ -q` | ✅ 40 passed |
+| `ruff check src/kiln/ tests/` | ✅ clean |
+| Startup-light probe suite | ✅ still green with huggingface-hub in core |
+| Smoke: `kiln data lint` on bad fixture | ✅ flags empty output (line 2) + duplicate, exit 1 |
+| Smoke: `kiln data inspect` | ✅ correct stats |
+| Smoke: `kiln data preview` | ✅ renders alpaca row after branch-order fix |
+
+**Milestone 2 status: COMPLETE** (network path verified by unit tests with mocked
+transport; live HF download deferred to first real use).
+

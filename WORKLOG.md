@@ -39,3 +39,33 @@ Running record of what was done, newest at the bottom of each section.
   dedicated startup-light-probe job; first changelog fragment added.
 - **Dev env**: `uv venv --python 3.12 .venv` (system python is 3.14, unsupported).
 
+---
+
+## Milestone 2 — Fetch & Data
+
+### 2026-08-26
+
+#### M2 implementation
+- Added `huggingface-hub>=0.30,<2.0` to core deps (Soup pattern: hub client is light-core;
+  lazy-imported inside functions so startup probe stays green).
+- **`hub/auth.py`**: `kiln login` stores HF token at `~/.kiln/token` (0600 POSIX,
+  documented Windows ACL caveat); `HF_TOKEN` env takes precedence; `clear_token` support.
+- **`hub/preflight.py`**: disk preflight with injectable `free_space_fn` (tests never touch
+  real FS). Safety margin = max(5% model size, 512 MiB). Refuses via `KilnError` with exact
+  numbers ("the engine never lies about limits").
+- **`hub/fetch.py`**: `probe_model_size()` via `HfApi.model_info(files_metadata=True)`
+  (no download); `fetch_model()` = probe → preflight → resumable `snapshot_download`
+  into `--dest` (default `./models/<name>`).
+- **`data/formats.py`**: row-shape format detection (alpaca/chatml/sharegpt/none),
+  majority vote, strict JSONL reader raising with line numbers.
+- **`data/lint.py`**: rules with human-facing row numbers — the headline rule is
+  `no-loss-target` (empty output / no assistant turn / no gpt turn — guards against
+  Soup's "trained on zero tokens" silent failure), plus invalid roles, duplicates,
+  unknown-format.
+- **`data/stats.py`**: rows/format/duplicates/unrecognized/output-length stats,
+  chars-4 token heuristic labeled honestly as an estimate.
+- **CLI**: `login`, `fetch`, and `data` sub-app (`inspect` / `lint` / `preview`) wired;
+  lint exits 1 on issues, exit 3 on malformed input; graceful Ctrl-C → exit 130.
+- Fixed preview branch bug found in smoke test (empty messages list matched ChatML).
+
+
