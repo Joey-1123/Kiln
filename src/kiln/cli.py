@@ -877,6 +877,47 @@ def export_gguf(
         raise typer.Exit(friendly.exit_code)
 
 
+@app.command("recipe-list")
+def recipe_list() -> None:
+    """List the built-in training recipes from the catalog."""
+    from kiln.recipes import load_catalog
+
+    recipes = load_catalog()
+    if not recipes:
+        console.print("[dim]No recipes in catalog.[/dim]")
+        return
+    from rich.table import Table
+
+    table = Table(title="Kiln recipes")
+    for col in ("name", "kind", "epochs", "lr", "quant", "stream"):
+        table.add_column(col)
+    for r in recipes:
+        table.add_row(
+            r.name, r.kind, str(r.epochs), f"{r.lr:g}", r.quantization,
+            "yes" if r.layer_streaming else "no",
+        )
+    console.print(table)
+
+
+@app.command("recipe-get")
+def recipe_get(
+    name: Annotated[str, typer.Argument(help="Recipe name")],
+) -> None:
+    """Show one recipe's fields."""
+    from kiln.recipes import get
+
+    try:
+        r = get(name)
+    except KeyError:
+        console.print(f"[red]Unknown recipe {name!r}.[/red]")
+        raise typer.Exit(exitcodes.USAGE)
+    console.print(f"[green]{r.name}[/green] ({r.kind})")
+    console.print(f"  model={r.model} dataset={r.dataset} epochs={r.epochs} lr={r.lr:g}")
+    console.print(
+        f"  quantization={r.quantization} layer_streaming={r.layer_streaming}"
+    )
+
+
 def run() -> None:
     """Console-script entry point: bootstrap, then run the app."""
     force_utf8_stdio()

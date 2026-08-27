@@ -1,0 +1,28 @@
+[
+  {
+    "name": "sft-chat",
+    "kind": "sft",
+    "model": "auto",
+    "dataset": "auto",
+    "epochs": 3,
+    "lr": 2e-5
+  },
+  {
+    "name": "dpo-pref",
+    "kind": "dpo",
+    "model": "auto",
+    "dataset": "auto",
+    "epochs": 1,
+    "lr": 5e-6
+  },
+  {
+    "name": "sft-4bit-stream",
+    "kind": "sft",
+    "model": "auto",
+    "dataset": "auto",
+    "epochs": 2,
+    "lr": 2e-5,
+    "layer_streaming": true,
+    "quantization": "4bit"
+  }
+]

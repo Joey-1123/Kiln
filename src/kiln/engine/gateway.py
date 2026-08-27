@@ -73,6 +73,7 @@ class OpenAIChatRequest(BaseModel):
     stream: bool = False
     tools: list[OpenAITool] | None = None
     stop: str | list[str] | None = None
+    grammar: str = ""  # xgrammar / constrained-decoding spec (empty = unconstrained)
 
 
 class OpenAIChoice(BaseModel):
@@ -127,6 +128,7 @@ class AnthropicRequest(BaseModel):
     temperature: float = 0.7
     stream: bool = False
     stop_sequences: list[str] | None = None
+    grammar: str = ""  # xgrammar / constrained-decoding spec (empty = unconstrained)
 
 
 class AnthropicContentBlock(BaseModel):
@@ -338,6 +340,7 @@ def create_gateway(
             stream=body.stream,
             tools=tools,
             stop=stop,
+            grammar=body.grammar,
         )
         app.state.metrics.start(req_id)
 
@@ -403,6 +406,7 @@ def create_gateway(
             max_tokens=body.max_tokens,
             stream=body.stream,
             stop=stop,
+            grammar=body.grammar,
         )
         app.state.metrics.start(req_id)
 

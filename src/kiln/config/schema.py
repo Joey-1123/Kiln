@@ -66,7 +66,7 @@ class TrainingConfig(BaseModel):
     lr: float = Field(2e-5, gt=0.0, le=1.0)
     batch_size: int | str = Field(4, description="int or 'auto'")
     lora: LoraConfig = Field(default_factory=LoraConfig)
-    quantization: str = Field("4bit", description="none|4bit")
+    quantization: str = Field("4bit", description="none|8bit|4bit|gptq|awq")
     seed: int = Field(1234)
     layer_streaming: bool = Field(
         False,
@@ -86,9 +86,12 @@ class TrainingConfig(BaseModel):
     @field_validator("quantization")
     @classmethod
     def _known_quant(cls, v: str) -> str:
-        allowed = {"none", "4bit"}
-        if v not in allowed:
-            raise ValueError(f"training.quantization must be one of {sorted(allowed)}, got {v!r}")
+        from kiln.quant import VALID_NAMES
+
+        if v not in VALID_NAMES:
+            raise ValueError(
+                f"training.quantization must be one of {sorted(VALID_NAMES)}, got {v!r}"
+            )
         return v
 
 

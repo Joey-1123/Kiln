@@ -54,6 +54,7 @@ class GenerateRequest:
     stream: bool = False
     tools: tuple[ToolDefinition, ...] = ()
     stop: tuple[str, ...] = ()
+    grammar: str = ""  # xgrammar / constrained-decoding spec (empty = unconstrained)
 
 
 @dataclass(frozen=True)

@@ -100,3 +100,32 @@ class TestRouteResponse:
         state = type("S", (), {"_response_queues": {"r1": q}})()
         # Should not raise — just logs warning
         route_response(state, GenerateComplete(request_id="r1", text="overfill"))
+
+
+class TestGrammarPassthrough:
+    async def test_grammar_flows_to_engine(self):
+        import asyncio
+
+        from kiln.engine.messages import GenerateRequest
+
+        t = QueueTransport(maxsize=4)
+        app = create_gateway(transport=t, model_name="m")
+        captured: asyncio.Queue = asyncio.Queue()
+
+        async def drain() -> None:
+            await captured.put(await t.get())
+
+        task = asyncio.create_task(drain())
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            try:
+                await c.post(
+                    "/v1/chat/completions",
+                    json={"messages": [{"role": "user", "content": "hi"}], "grammar": "[a-z]+"},
+                    timeout=0.5,
+                )
+            except Exception:
+                pass
+        req = await asyncio.wait_for(captured.get(), timeout=2)
+        assert isinstance(req, GenerateRequest)
+        assert req.grammar == "[a-z]+"
+        task.cancel()

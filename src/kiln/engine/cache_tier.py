@@ -101,6 +101,21 @@ class LFRUTier:
         """Evict the next victim (cold-LFU then hot-LRU). Returns (key, value)."""
         return self._evict_one()
 
+    def rebalance(self, keep_fraction: float = 0.5) -> int:
+        """Elastic VRAM rebalance: evict coldest entries until only ``keep_fraction``
+        of capacity stays resident, freeing headroom before a new allocation so the
+        scheduler can avoid OOM instead of failing. Returns entries evicted."""
+        if not 0.0 <= keep_fraction <= 1.0:
+            raise ValueError("keep_fraction must be in [0, 1]")
+        target = max(0, int(self._capacity * keep_fraction))
+        evicted = 0
+        while self.size > target:
+            if self._evict_one() is None:
+                break
+            evicted += 1
+        self._trace.record("lfru_rebalance", keep_fraction=keep_fraction, evicted=evicted)
+        return evicted
+
     def _evict_if_needed(self) -> None:
         while self.size > self._capacity:
             self._evict_one()

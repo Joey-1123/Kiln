@@ -71,6 +71,14 @@ Everything else in the V1 surface matrix (CLI, API/OpenAI+Anthropic, TUI, MCP) i
 - **Serving metrics (TTFT / tok-s / memory bars)** — ✅ implemented
   (`src/kiln/engine/metrics.py`); feeds the future dashboard.
 - **Adapter registry with lineage** — ✅ implemented (`src/kiln/trainer/registry.py`).
+- **GPTQ/AWQ quantization menu** — ✅ implemented (`src/kiln/quant/__init__.py`);
+  `training.quantization` validates against the scheme registry.
+- **Elastic VRAM rebalance** — ✅ implemented (`LFRUTier.rebalance`): frees coldest
+  entries before a new allocation to avoid OOM.
+- **xgrammar / constrained decoding** — ✅ wired (`GenerateRequest.grammar` +
+  gateway chat endpoints forward it to the engine).
+- **Recipe catalog** — ✅ implemented (`specs/recipes/catalog.json` + `src/kiln/recipes/`);
+  exposed via `kiln recipe-list` / `kiln recipe-get`.
 
 ### V3 — Big MoE era
 - **Big MoE native support**: Qwen3-235B-A3B / GLM-MoE class.
