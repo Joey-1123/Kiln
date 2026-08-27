@@ -58,8 +58,8 @@ Everything else in the V1 surface matrix (CLI, API/OpenAI+Anthropic, TUI, MCP) i
   attempted outside the decode phase (known prefill-corruption lesson).
 - **Custom kernels / batching / expert-banks** behind the existing backend interface;
   must match the transformers oracle **token-for-token at temp 0** (§8, line 96). *Partial:*
-  graph-capturable decode scheduler scaffolded (`src/kiln/engine/decode_scheduler.py`);
-  real Triton kernels deferred to V3 (need GPU).
+  graph-capturable decode scheduler (`decode_scheduler.py`) + continuous batching
+  scheduler (`batching.py`) scaffolded; real Triton kernels deferred to V3 (need GPU).
 - **Full ZMQ 3-process split** (gateway / engine / supervisor) — ✅ transport seam
   done (A1): `src/kiln/engine/transport_zmq.py` + `kiln serve --transport zmq`.
   Supervisor process spawn of the engine half is the remaining glue.
@@ -68,6 +68,9 @@ Everything else in the V1 surface matrix (CLI, API/OpenAI+Anthropic, TUI, MCP) i
   residency, decode-only trim guard; weight movement via injectable mover.
 - **Layer-streaming** training (opt-in) — ✅ implemented (D5).
   `src/kiln/trainer/layer_stream.py` + `training.layer_streaming` config flag.
+- **Serving metrics (TTFT / tok-s / memory bars)** — ✅ implemented
+  (`src/kiln/engine/metrics.py`); feeds the future dashboard.
+- **Adapter registry with lineage** — ✅ implemented (`src/kiln/trainer/registry.py`).
 
 ### V3 — Big MoE era
 - **Big MoE native support**: Qwen3-235B-A3B / GLM-MoE class.
