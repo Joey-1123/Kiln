@@ -81,8 +81,13 @@ Everything else in the V1 surface matrix (CLI, API/OpenAI+Anthropic, TUI, MCP) i
   exposed via `kiln recipe-list` / `kiln recipe-get`.
 
 ### V3 — Big MoE era
-- **Big MoE native support**: Qwen3-235B-A3B / GLM-MoE class.
-- **Expert offload runtime** (deeper than V2 hybrid).
+- **Big MoE spec + validator** — ✅ implemented (`src/kiln/engine/moe_spec.py`).
+  `MoESpec` describes expert topology; `validate_moe_spec` checks coherence;
+  `build_expert_bank` turns a spec into the V2 `ExpertBank` the engine routes
+  through. Pure-Python and unit-tested without a GPU. GPU weight loading is the
+  backend's job (run in CI on real hardware).
+- **Expert offload runtime** (deeper than V2 hybrid) — control plane ✅
+  (`ExpertBank` offload/hybrid/cpu + decode-only guard); GPU execution deferred to CI.
 
 ### Cross-cutting constraints locked for V2+
 - **Expert-budget trimming is decode-only only** — the expert-budget rule is

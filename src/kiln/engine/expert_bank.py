@@ -34,11 +34,14 @@ class Expert:
     """An opaque expert-weight handle.
 
     ``size_bytes`` is the GPU footprint; the bank never touches the bytes
-    itself — movement is performed by the injected ``mover``.
+    itself — movement is performed by the injected ``mover``. ``layer`` and
+    ``dims`` are topology metadata used by the spec/validator (plan V3).
     """
 
     expert_id: str
     size_bytes: int
+    layer: int = 0
+    dims: int = 0
 
 
 # mover(expert, from_tier, to_tier) -> None  (side effect: physically move weights)
@@ -77,6 +80,8 @@ class ExpertBank:
         self._resident: LFRUTier[str, Expert] = LFRUTier(capacity=10_000)
         self._cpu: dict[str, Expert] = {}
         self._disk: dict[str, Expert] = {}
+        # Full topology (every expert descriptor), independent of residency.
+        self._all_experts: dict[str, Expert] = {}
         self.moves: list[tuple[Expert, str, str]] = []
         self._decode_phase = False
 
@@ -87,6 +92,22 @@ class ExpertBank:
 
     def exit_decode(self) -> None:
         self._decode_phase = False
+
+    # -- topology API ---------------------------------------------------------
+    def register(self, expert: Expert) -> None:
+        """Record an expert in the topology (CPU-side descriptor by default).
+
+        Registration just records the descriptor so the engine knows the model's
+        expert set; actual GPU residency is established on demand via
+        :meth:`ensure_resident` during the decode phase.
+        """
+        self._all_experts[expert.expert_id] = expert
+        self._cpu.setdefault(expert.expert_id, expert)
+
+    @property
+    def experts(self) -> dict[str, Expert]:
+        """All registered expert descriptors (topology view)."""
+        return dict(self._all_experts)
 
     # -- residency API --------------------------------------------------------
     def is_resident(self, expert_id: str) -> bool:
