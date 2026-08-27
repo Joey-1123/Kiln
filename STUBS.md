@@ -97,8 +97,12 @@ Everything else in the V1 surface matrix (CLI, API/OpenAI+Anthropic, TUI, MCP) i
 - **B4 CUDA decode kernel** — ✅ implemented (`src/kiln/engine/kernels/decode.py`):
   `CudaGraphDecode` captures a fixed step sequence into `torch.cuda.Graph` and replays
   it, parity-checked vs eager. Torch-guarded; GPU tests skip without CUDA.
-- **B5 GPTQ/AWQ weight application** — ❌ not started (control plane/menu done in V2;
-  actual torch/auto-gptq load deferred to CUDA CI).
+- **B5 GPTQ/AWQ weight application** — ✅ implemented: torch-free `QuantSpec` registry
+  (`quant/apply.py`) routes none/4bit/8bit through serve (`CUDABackend.load_model`,
+  gateway `/v1/load`) and training (`sft`/`dpo`); gptq/awq load pre-quantized artifacts.
+  New `kiln quantize` command produces gptq/awq artifacts (auto-gptq / auto-awq; awq also
+  emits a GGUF). Calibration required; parity-gated. `[quant]` extra isolates heavy deps.
+  Execution needs CUDA — `@pytest.mark.gpu` suite covers it (skipped without CUDA).
 - **B6 MoE GPU weight loading** — ❌ not started (spec + bank done; real tensor mover
   deferred to CUDA CI).
 
