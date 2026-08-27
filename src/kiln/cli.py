@@ -42,14 +42,9 @@ console = Console()
 console_err = Console(stderr=True)
 
 # Stubs that arrive in later milestones, listed for --help discoverability.
-_NOT_IMPLEMENTED = {
-    "init": "Milestone 1 (wizard lands with config templates)",
-}
-
-
-def _stub_exit(command: str) -> None:
-    console.print(f"[yellow]'{command}' is not implemented yet.[/yellow]")
-    raise typer.Exit(code=1)
+# (All V1 commands are now implemented; this map is empty but kept so future
+# deferred commands remain discoverable in --help without being invokable.)
+_NOT_IMPLEMENTED: dict[str, str] = {}
 
 
 @app.command()
@@ -63,11 +58,75 @@ def version() -> None:
 @app.command()
 def init(
     template: Annotated[
-        Optional[str], typer.Option(help="Start from a template (e.g. chat).")
+        Optional[str],
+        typer.Option(
+            "--template", "-t", help="Config template: chat | train | serve (default: chat)."
+        ),
+    ] = "chat",
+    model: Annotated[
+        Optional[str],
+        typer.Option("--model", "-m", help="Base model HF repo id or local path."),
     ] = None,
+    data: Annotated[
+        Optional[Path],
+        typer.Option("--data", "-d", help="Training data file (required for the train template)."),
+    ] = None,
+    config: Annotated[
+        Path,
+        typer.Option("--config", "-c", help="Output kiln.yaml path (default: ./kiln.yaml)."),
+    ] = Path("kiln.yaml"),
+    force: Annotated[
+        bool, typer.Option("--force", "-f", help="Overwrite an existing config file.")
+    ] = False,
 ) -> None:
-    """Create a new kiln.yaml config."""
-    _stub_exit("init")
+    """Create a new kiln.yaml config from a template.
+
+    Interactive by default (prompts for any missing value); pass ``--model`` /
+    ``--data`` for non-interactive / CI use.
+    """
+    from kiln.config.schema import (
+        DataConfig,
+        KilnConfig,
+        ModelConfig,
+        RecipeConfig,
+        config_to_yaml,
+    )
+
+    template = (template or "chat").lower()
+    if template not in {"chat", "train", "serve"}:
+        console.print(f"[red]Unknown template {template!r}; expected chat|train|serve.[/red]")
+        raise typer.Exit(exitcodes.USAGE)
+
+    if model is None:
+        if not force and not typer.get_text_stream("stdin").isatty():
+            console.print("[red]--model is required in non-interactive mode.[/red]")
+            raise typer.Exit(exitcodes.USAGE)
+        model = typer.prompt("Base model (HF repo id or local path)")
+
+    if not model or not model.strip():
+        console.print("[red]Empty model; nothing written.[/red]")
+        raise typer.Exit(exitcodes.USAGE)
+
+    if template == "train":
+        data_path = data or Path("data/train.jsonl")
+        recipe = RecipeConfig(
+            model=ModelConfig(base=model.strip()),
+            data=DataConfig(train=data_path),
+        )
+    else:
+        recipe = RecipeConfig(model=ModelConfig(base=model.strip()))
+
+    if config.exists() and not force:
+        console.print(f"[red]{config} already exists; pass --force to overwrite.[/red]")
+        raise typer.Exit(exitcodes.USAGE)
+
+    cfg = KilnConfig(recipe=recipe)
+    config.write_text(config_to_yaml(cfg), encoding="utf-8")
+    console.print(
+        f"[green]Wrote {template} config to[/green] {config}\n"
+        f"[dim]Edit it, then run: kiln fetch {model}  ·  "
+        f"{'kiln train' if template == 'train' else 'kiln serve'}[/dim]"
+    )
 
 
 @app.command("login")
