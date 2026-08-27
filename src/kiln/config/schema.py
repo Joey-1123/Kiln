@@ -68,6 +68,11 @@ class TrainingConfig(BaseModel):
     lora: LoraConfig = Field(default_factory=LoraConfig)
     quantization: str = Field("4bit", description="none|4bit")
     seed: int = Field(1234)
+    layer_streaming: bool = Field(
+        False,
+        description="Stream model layers one at a time (load/unload per layer) to "
+        "bound peak VRAM during training. Opt-in; correctness-preserving.",
+    )
 
     @field_validator("batch_size")
     @classmethod
