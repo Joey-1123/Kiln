@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -148,8 +149,55 @@ def login_cmd(
     if not token.strip():
         console.print("[red]Empty token; nothing saved.[/red]")
         raise typer.Exit(exitcodes.USAGE)
-    path = save_token(token)
-    console.print(f"[green]Token saved to[/green] {path}")
+        path = save_token(token)
+        console.print(f"[green]Token saved to[/green] {path}")
+
+
+@app.command()
+def tune(
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Re-measure even if a valid cached calibration exists."),
+    ] = False,
+) -> None:
+    """Self-calibrate this machine's bandwidth and recommend a backend strategy.
+
+    Writes a GPU-UUID (or stable host-fingerprint) keyed measurement into the
+    cache consumed by `plan` for prod backend selection (FreeToken `benchbw`
+    pattern, plan A10). Stale entries are disqualified by timestamp.
+    """
+    from kiln.tune.cache import MeasurementCache, host_uuid
+    from kiln.tune.measure import measure_bandwidth_gbps, recommend
+
+    key = host_uuid()
+    cache = MeasurementCache()
+    cached = cache.load(key)
+    if not force and cache.is_valid(cached):
+        bw = cached.get("bandwidth_gbps")
+        rec = cached.get("recommendation") or recommend(bw)
+        console.print(f"[green]Using cached calibration for[/green] {key}")
+        console.print(f"  bandwidth: {bw} GB/s" if bw is not None else "  bandwidth: (none)")
+        console.print(f"  recommendation: {rec}")
+        return
+
+    bw = measure_bandwidth_gbps()
+    rec = recommend(bw)
+    cache.save(
+        key,
+        {
+            "measured_at": int(time.time()),
+            "bandwidth_gbps": bw,
+            "recommendation": rec,
+            "torch_available": bw is not None,
+        },
+    )
+    if bw is None:
+        console.print(
+            "[yellow]No CUDA/torch available; stored a conservative 'cpu' recommendation.[/yellow]"
+        )
+        console.print("[dim]Install the [train] extras to enable bandwidth measurement.[/dim]")
+    else:
+        console.print(f"[green]Measured[/green] {bw:.1f} GB/s -> recommendation: {rec}")
 
 
 @app.command()
