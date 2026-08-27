@@ -402,6 +402,9 @@ def serve(
     supervisor: Annotated[
         bool, typer.Option("--supervisor/--no-supervisor")
     ] = False,
+    transport: Annotated[
+        str, typer.Option("--transport")
+    ] = "queue",
 ) -> None:
     """Start the OpenAI/Anthropic-compatible API server."""
     import asyncio
@@ -440,19 +443,37 @@ def serve(
         run_supervisor(engine_cmd)
         return
 
-    # Single-process mode: gateway + engine fused (A1 amendment)
-    engine_out = QueueTransport()  # engine → gateway
-    gw_out = QueueTransport()  # gateway → engine
+    # Single-process mode: gateway + engine fused (A1 amendment). The transport
+    # seam lets the two halves talk over an asyncio.Queue (default) or ZeroMQ
+    # (--transport zmq) — the latter exercises the 3-process wire path in one
+    # process so the seam is proven before the supervisor splits them apart.
+    if transport == "zmq":
+        from kiln.engine.transport_zmq import ZmqLink
 
-    engine = Engine(gateway_transport=gw_out, engine_transport=engine_out)
-    gw_transport = QueueTransport()  # gateway HTTP → engine
+        link = ZmqLink()
+        engine_out = link.engine_to_gateway  # engine → gateway
+        gw_out = link.gateway_to_engine  # gateway → engine
+        gw_transport = link.gateway_to_engine  # gateway HTTP → engine
+        engine = Engine(gateway_transport=link.engine_from_gateway, engine_transport=engine_out)
+        app = create_gateway(
+            transport=gw_transport,
+            model_name=model_name,
+            api_token=api_token,
+            response_transport=link.gateway_from_engine,
+        )
+    else:
+        engine_out = QueueTransport()  # engine → gateway
+        gw_out = QueueTransport()  # gateway → engine
 
-    app = create_gateway(
-        transport=gw_transport,
-        model_name=model_name,
-        api_token=api_token,
-        response_transport=engine_out,
-    )
+        engine = Engine(gateway_transport=gw_out, engine_transport=engine_out)
+        gw_transport = QueueTransport()  # gateway HTTP → engine
+
+        app = create_gateway(
+            transport=gw_transport,
+            model_name=model_name,
+            api_token=api_token,
+            response_transport=engine_out,
+        )
 
     console.print(f"[green]Kiln server starting on {host}:{port}[/green]")
     console.print(f"[dim]Docs: http://{host}:{port}/docs[/dim]")
@@ -473,6 +494,8 @@ def serve(
         finally:
             engine.stop()
             engine_task.cancel()
+            if transport == "zmq":
+                await link.aclose()
 
     asyncio.run(_run_all())
 
