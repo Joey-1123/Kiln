@@ -59,7 +59,9 @@ Everything else in the V1 surface matrix (CLI, API/OpenAI+Anthropic, TUI, MCP) i
 - **Custom kernels / batching / expert-banks** behind the existing backend interface;
   must match the transformers oracle **token-for-token at temp 0** (§8, line 96). *Partial:*
   graph-capturable decode scheduler (`decode_scheduler.py`) + continuous batching
-  scheduler (`batching.py`) scaffolded; real Triton kernels deferred to V3 (need GPU).
+  scheduler (`batching.py`) + **CUDA graph decode kernel** (`kernels/decode.py`,
+  `CudaGraphDecode`, torch-guarded, `@pytest.mark.gpu`) scaffolded; real Triton kernels
+  and the GPU execution path run only in CI on a CUDA runner (ROCm/AMD deferred).
 - **Full ZMQ 3-process split** (gateway / engine / supervisor) — ✅ transport seam
   done (A1): `src/kiln/engine/transport_zmq.py` + `kiln serve --transport zmq`.
   Supervisor process spawn of the engine half is the remaining glue.
@@ -88,6 +90,17 @@ Everything else in the V1 surface matrix (CLI, API/OpenAI+Anthropic, TUI, MCP) i
   backend's job (run in CI on real hardware).
 - **Expert offload runtime** (deeper than V2 hybrid) — control plane ✅
   (`ExpertBank` offload/hybrid/cpu + decode-only guard); GPU execution deferred to CI.
+
+### GPU / CI execution (plan B — CUDA; ROCm/AMD deferred)
+- **B7 CI GPU job** — ✅ added (`gpu` job in `.github/workflows/ci.yml`, `@pytest.mark.gpu`
+  suite, self-hosted CUDA runner label TODO). Parity-oracle runner-label TODO noted.
+- **B4 CUDA decode kernel** — ✅ implemented (`src/kiln/engine/kernels/decode.py`):
+  `CudaGraphDecode` captures a fixed step sequence into `torch.cuda.Graph` and replays
+  it, parity-checked vs eager. Torch-guarded; GPU tests skip without CUDA.
+- **B5 GPTQ/AWQ weight application** — ❌ not started (control plane/menu done in V2;
+  actual torch/auto-gptq load deferred to CUDA CI).
+- **B6 MoE GPU weight loading** — ❌ not started (spec + bank done; real tensor mover
+  deferred to CUDA CI).
 
 ### Cross-cutting constraints locked for V2+
 - **Expert-budget trimming is decode-only only** — the expert-budget rule is

@@ -78,3 +78,25 @@ jobs:
           KILN_PARITY_MODEL: tests/fixtures/parity/parity_model
           KILN_PARITY_GGUF: ${{ steps.gguf.outputs.gguf }}
         run: pytest tests/test_parity_oracle.py -m parity -v --tb=short
+
+  # ---------------------------------------------------------------------------
+  # B7 — CUDA GPU test job. Runs the `@pytest.mark.gpu` suite (CUDA kernels,
+  # real MoE/GPTQ loading) on a CUDA runner. ROCm/AMD support is deferred.
+  # Set `runs-on` to your self-hosted CUDA runner label (GitHub-hosted has no GPU).
+  # ---------------------------------------------------------------------------
+  gpu:
+    name: GPU tests (cuda)
+    runs-on: self-hosted-gpu  # TODO: set your CUDA runner label (ROCm later)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'gpu')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install (torch + dev + train)
+        run: uv pip install -e ".[dev,train]" --system
+      - name: Run GPU suite
+        run: pytest tests/ -m gpu -v --tb=short
+
