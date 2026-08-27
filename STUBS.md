@@ -103,8 +103,10 @@ Everything else in the V1 surface matrix (CLI, API/OpenAI+Anthropic, TUI, MCP) i
   New `kiln quantize` command produces gptq/awq artifacts (auto-gptq / auto-awq; awq also
   emits a GGUF). Calibration required; parity-gated. `[quant]` extra isolates heavy deps.
   Execution needs CUDA — `@pytest.mark.gpu` suite covers it (skipped without CUDA).
-- **B6 MoE GPU weight loading** — ❌ not started (spec + bank done; real tensor mover
-  deferred to CUDA CI).
+- **B6 MoE GPU weight loading** — 🔜 planned (spec + bank done). Plan agreed: rewrite the
+  MoE forward so expert matmuls route through the bank; weights parsed from a safetensors
+  index. Three commits scoped (SafetensorsExpertStore → TorchExpertMover → KilnMoeBlock +
+  `CUDABackend.load_moe` + gpu parity gate). Execution deferred to CUDA CI. See `WORKLOG.md`.
 
 ### Cross-cutting constraints locked for V2+
 - **Expert-budget trimming is decode-only only** — the expert-budget rule is
