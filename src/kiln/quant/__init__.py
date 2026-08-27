@@ -28,6 +28,10 @@ SCHEMES: dict[str, QuantScheme] = {
 # Names accepted by `training.quantization` in the config schema.
 VALID_NAMES = frozenset(SCHEMES)
 
+# Schemes that produce a persistent artifact via `kiln quantize`
+# (gptq/awq), distinct from load/train-time schemes (none/4bit/8bit).
+QUANTIZE_SCHEMES = frozenset({"gptq", "awq"})
+
 
 def available(backend: str) -> list[str]:
     """Return scheme names usable on the given backend (plus the always-valid 'none')."""

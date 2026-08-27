@@ -72,6 +72,46 @@ def probe_bnb_4bit() -> bool:
         return False
 
 
+def probe_gptq() -> bool:
+    """Check if transformers can consume a GPTQ-quantized model (GPTQConfig)."""
+    try:
+        from transformers import GPTQConfig  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def probe_awq() -> bool:
+    """Check if transformers can consume an AWQ-quantized model (AwqConfig)."""
+    try:
+        from transformers import AwqConfig  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def probe_auto_gptq() -> bool:
+    """Check if the auto-gptq GPTQ training library is installed."""
+    try:
+        import auto_gptq  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def probe_auto_awq() -> bool:
+    """Check if the auto-awq AWQ training library is installed."""
+    try:
+        import awq  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def probe_all() -> dict[str, bool]:
     """Run all probes and return a capability dict."""
     results = {
@@ -80,6 +120,10 @@ def probe_all() -> dict[str, bool]:
         "dpo_trainer": probe_dpo_trainer(),
         "peft_lora": probe_peft_lora(),
         "bnb_4bit": probe_bnb_4bit(),
+        "gptq": probe_gptq(),
+        "awq": probe_awq(),
+        "auto_gptq": probe_auto_gptq(),
+        "auto_awq": probe_auto_awq(),
     }
     log.debug("capability probes: %s", results)
     return results

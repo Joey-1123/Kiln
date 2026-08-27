@@ -191,7 +191,7 @@ class Engine:
         try:
             # Lazy import and instantiate the backend
             await loop.run_in_executor(
-                None, self._load_backend, req.model_path, req.backend
+                None, self._load_backend, req.model_path, req.backend, req.quantization
             )
             await self._eng.put(ModelLoaded(
                 request_id=req.request_id,
@@ -206,13 +206,13 @@ class Engine:
                 error_message=str(exc),
             ))
 
-    def _load_backend(self, model_path: str, backend_hint: str) -> None:
+    def _load_backend(self, model_path: str, backend_hint: str, quantization: str = "none") -> None:
         """Load a model into the appropriate backend (blocking)."""
         if self._backend_info is not None and self._backend_info.name == "cuda":
             from kiln.engine.backends.cuda_native import CUDABackend
 
             b = CUDABackend()
-            b.load_model(model_path)
+            b.load_model(model_path, quantization=quantization)
             self._backend = b
         elif self._backend_info is not None and self._backend_info.name == "cpu":
             from kiln.engine.backends.llama_cpp import CPUBackend

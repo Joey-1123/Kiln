@@ -116,6 +116,7 @@ class LoadModelRequest:
     request_id: str = ""
     model_path: str = ""
     backend: str = ""  # "cuda" | "cpu" | "" for auto
+    quantization: str = "none"  # none | 4bit | 8bit | gptq | awq
 
 
 @dataclass(frozen=True)

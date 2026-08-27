@@ -282,6 +282,7 @@ def create_gateway(
                 request_id=req_id,
                 model_path=body.get("model_path", ""),
                 backend=body.get("backend", ""),
+                quantization=body.get("quantization", "none"),
             ))
             resp = await asyncio.wait_for(fut, timeout=300.0)
             if isinstance(resp, GenerateError):

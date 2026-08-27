@@ -54,29 +54,28 @@ class CUDABackend:
         """Path of the currently loaded model, or None."""
         return self._model_path
 
-    def load_model(self, model_path: str, *, nf4: bool = True) -> None:
-        """Load a model with optional NF4 quantization."""
-        import torch
-        from transformers import (
-            AutoModelForCausalLM,
-            AutoTokenizer,
-            BitsAndBytesConfig,
-        )
+    def load_model(self, model_path: str, *, quantization: str = "none") -> None:
+        """Load a model with the requested quantization scheme.
 
-        log.info("Loading CUDA model: %s (nf4=%s)", model_path, nf4)
+        ``none`` loads fp16; ``4bit``/``8bit`` apply bitsandbytes at load time;
+        ``gptq``/``awq`` load pre-quantized artifacts (their config.json carries
+        the quantizer config).  Unknown schemes raise a mapped USAGE error.
+        """
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        from kiln.quant.apply import build_quant_spec, resolve_load_quant_config
+
+        spec = build_quant_spec(quantization)
+        log.info("Loading CUDA model: %s (quantization=%s)", model_path, quantization)
 
         tokenizer = AutoTokenizer.from_pretrained(model_path)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
         model_kwargs: dict[str, Any] = {"device_map": "auto"}
-        if nf4:
-            model_kwargs["quantization_config"] = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.float16,
-                bnb_4bit_use_double_quant=True,
-            )
+        quant_config = resolve_load_quant_config(spec)
+        if quant_config is not None:
+            model_kwargs["quantization_config"] = quant_config
 
         model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
         self._model = model

@@ -113,7 +113,7 @@ def _run_dpo(
     import torch
     from datasets import Dataset
     from peft import LoraConfig, get_peft_model
-    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+    from transformers import AutoModelForCausalLM, AutoTokenizer
     from trl import DPOConfig, DPOTrainer
 
     # --- 1. Seed BEFORE anything model-related ---
@@ -124,20 +124,16 @@ def _run_dpo(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # --- 3. Quantization config ---
-    bnb_config = None
-    if quantization == "4bit":
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16,
-            bnb_4bit_use_double_quant=True,
-        )
+    # --- 3. Quantization config (QLoRA) ---
+    from kiln.quant.apply import build_quant_spec, resolve_training_quant_config
+
+    spec = build_quant_spec(quantization)
+    quant_config = resolve_training_quant_config(spec)
 
     # --- 4. Load model ---
     model_kwargs: dict[str, Any] = {"device_map": "auto"}
-    if bnb_config is not None:
-        model_kwargs["quantization_config"] = bnb_config
+    if quant_config is not None:
+        model_kwargs["quantization_config"] = quant_config
     model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
 
     # --- 5. LoRA config ---

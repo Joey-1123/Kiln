@@ -197,7 +197,7 @@ def test_live_cross_backend_parity() -> None:
     if cuda_available and model_path:
         try:
             gpu = CUDABackend()
-            gpu.load_model(model_path)
+            gpu.load_model(model_path, quantization="4bit")
             recs = {
                 cap: gpu.generate_parity(fx.prompts[0], max_tokens=64, temperature=0.0)
                 for cap in capacities
