@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from kiln.engine.backends import BackendInfo, register_backend
+from kiln.engine.parity import GenerationRecord
 
 log = logging.getLogger(__name__)
 
@@ -184,3 +185,60 @@ class CUDABackend:
         self._tokenizer = None
         self._model_path = ""
         gc.collect()
+
+    def generate_parity(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 64,
+        temperature: float = 0.0,
+        topk: int = 10,
+    ) -> GenerationRecord:
+        """Greedy decode capturing per-step top-k logits for the parity oracle.
+
+        Greedy (temperature 0) is used because the oracle compares the
+        argmax path; sampling is non-deterministic across engines.
+        """
+        import torch
+
+        if self._model is None:
+            raise RuntimeError("No model loaded")
+
+        inputs = self._tokenizer(prompt, return_tensors="pt").to(self._model.device)
+        generated: list[int] = []
+        topk_ids: list[list[int]] = []
+        topk_probs: list[list[float]] = []
+
+        with torch.no_grad():
+            for _ in range(max_tokens):
+                model_inputs = {
+                    "input_ids": torch.cat(
+                        [inputs["input_ids"], torch.tensor([generated], device=self._model.device)],
+                        dim=-1,
+                    ),
+                    "attention_mask": torch.ones(
+                        1,
+                        inputs["input_ids"].shape[-1] + len(generated),
+                        device=self._model.device,
+                        dtype=torch.long,
+                    ),
+                }
+                outputs = self._model(**model_inputs)
+                next_logits = outputs.logits[0, -1, :]
+                if temperature > 0:
+                    next_logits = next_logits / temperature
+                probs = torch.softmax(next_logits, dim=-1)
+                k = min(topk, probs.shape[-1])
+                top_p, top_i = torch.topk(probs, k)
+                topk_ids.append(top_i.tolist())
+                topk_probs.append(top_p.tolist())
+                next_id = int(top_i[0])
+                generated.append(next_id)
+                if next_id == self._tokenizer.eos_token_id:
+                    break
+
+        return GenerationRecord(
+            tokens=generated,
+            topk_token_ids=topk_ids,
+            topk_probs=topk_probs,
+        )

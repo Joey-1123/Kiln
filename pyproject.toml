@@ -84,6 +84,8 @@ addopts = "-q"
 asyncio_mode = "auto"
 markers = [
     "smoke: slow tests that download models or use a GPU (deselected by default)",
+    "parity: cross-backend (CPU↔GPU) parity-oracle gate; runs only in the parity-oracle CI job",
+    "gpu: tests that require a CUDA-capable device",
 ]
 
 [tool.coverage.run]

@@ -37,3 +37,44 @@ jobs:
           python-version: "3.12"
       - run: uv pip install -e ".[dev]" --system
       - run: pytest tests/test_cli_startup_is_light.py tests/test_supervisor_import_safety.py -v
+
+  # ---------------------------------------------------------------------------
+  # A8 — hard release gate: CPU↔GPU cross-backend parity oracle.
+  # Runs only on releases / labeled PRs / manual dispatch so unlabeled PRs on
+  # fork runners are not blocked.  Must pass before a release is cut.
+  # Runs on a GPU runner (swap the label for your pool) so both the native
+  # torch (cuda) and llama.cpp/GGUF (cpu) engines are exercised.
+  # ---------------------------------------------------------------------------
+  parity-oracle:
+    name: parity oracle (CPU↔GPU)
+    runs-on: ubuntu-latest  # TODO: replace with a self-hosted GPU label in repo settings
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'parity')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install (pinned torch + dev)
+        run: uv pip install -e ".[dev,train]" --system
+      - name: Install llama.cpp CPU engine
+        run: uv pip install llama-cpp-python --system
+      - name: Generate parity fixtures (pinned torch)
+        run: >-
+          python tools/gen_parity_fixture.py
+          --out tests/fixtures/parity/generated.json
+          --model-dir tests/fixtures/parity/parity_model
+      - name: Build GGUF for the CPU engine
+        id: gguf
+        run: |
+          kiln export-gguf tests/fixtures/parity/parity_model \
+            --output-dir tests/fixtures/parity/gguf -q Q4_K_M || true
+          echo "gguf=$(ls tests/fixtures/parity/gguf/*.gguf 2>/dev/null | head -1)" >> "$GITHUB_OUTPUT"
+      - name: Run parity gate
+        env:
+          KILN_PARITY_FIXTURE: tests/fixtures/parity/generated.json
+          KILN_PARITY_MODEL: tests/fixtures/parity/parity_model
+          KILN_PARITY_GGUF: ${{ steps.gguf.outputs.gguf }}
+        run: pytest tests/test_parity_oracle.py -m parity -v --tb=short
