@@ -62,8 +62,9 @@ Everything else in the V1 surface matrix (CLI, API/OpenAI+Anthropic, TUI, MCP) i
   V1 keeps gateway+engine fused in one process over `asyncio.Queue` behind the
   transport seam; split lands only with MoE banks / TP>1 / >~16 concurrent streams.
   Torch-free supervisor already separate.
-- **MoE expert offload / hybrid CPU↔GPU banks** — *not started*; adopt the
-  offload-cache / cpu-expert-executor model (D7, A9, Appendix B).
+- **MoE expert offload / hybrid CPU↔GPU banks** — ✅ implemented (A9).
+  `src/kiln/engine/expert_bank.py` with offload/hybrid/cpu strategies, LFRU-tracked
+  residency, decode-only trim guard; weight movement via injectable mover.
 - **Layer-streaming** training (opt-in) — training-ladder extension (D5). *Not started.*
 
 ### V3 — Big MoE era

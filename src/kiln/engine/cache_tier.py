@@ -97,23 +97,27 @@ class LFRUTier:
         self._hot.move_to_end(key)
         self._trace.record("lfru_promote", key=key)
 
+    def evict(self) -> tuple[str, T] | None:
+        """Evict the next victim (cold-LFU then hot-LRU). Returns (key, value)."""
+        return self._evict_one()
+
     def _evict_if_needed(self) -> None:
         while self.size > self._capacity:
             self._evict_one()
 
-    def _evict_one(self) -> str | None:
+    def _evict_one(self) -> tuple[str, T] | None:
         """Evict one entry: lowest-frequency cold first, else LRU hot."""
         if self._cold:
             # min respects OrderedDict insertion order for frequency ties (FIFO).
             victim = min(self._cold.items(), key=lambda kv: kv[1])[0]
+            value = self._values.pop(victim, None)
             self._cold.pop(victim)
-            self._values.pop(victim, None)
             self._trace.record("lfru_evict", key=victim, band="cold")
-            return victim
+            return victim, value
         if self._hot:
             victim = next(iter(self._hot))  # oldest
+            value = self._values.pop(victim, None)
             self._hot.pop(victim)
-            self._values.pop(victim, None)
             self._trace.record("lfru_evict", key=victim, band="hot")
-            return victim
+            return victim, value
         return None
