@@ -11,6 +11,9 @@ incrementally (prefetch/PILOT stays deferred per the plan).
 from __future__ import annotations
 
 from collections import OrderedDict
+from typing import Optional
+
+from kiln.engine.route_trace import RouteTrace, get_default
 
 T = object  # values are opaque to the tier; kept generic-friendly via object
 
@@ -18,13 +21,19 @@ T = object  # values are opaque to the tier; kept generic-friendly via object
 class LFRUTier:
     """Capacity-bounded LFRU cache split into cold (LFU) and hot (LRU) bands."""
 
-    def __init__(self, capacity: int, promotion_threshold: int = 2) -> None:
+    def __init__(
+        self,
+        capacity: int,
+        promotion_threshold: int = 2,
+        trace: Optional[RouteTrace] = None,
+    ) -> None:
         if capacity < 1:
             raise ValueError(f"capacity must be >= 1, got {capacity}")
         if promotion_threshold < 1:
             raise ValueError(f"promotion_threshold must be >= 1, got {promotion_threshold}")
         self._capacity = capacity
         self._promotion_threshold = promotion_threshold
+        self._trace = trace or get_default()
         self._hot: "OrderedDict[str, T]" = OrderedDict()
         self._cold: "OrderedDict[str, int]" = OrderedDict()  # key -> access frequency
         self._values: dict[str, T] = {}
@@ -86,6 +95,7 @@ class LFRUTier:
         self._cold.pop(key)
         self._hot[key] = self._values[key]
         self._hot.move_to_end(key)
+        self._trace.record("lfru_promote", key=key)
 
     def _evict_if_needed(self) -> None:
         while self.size > self._capacity:
@@ -98,10 +108,12 @@ class LFRUTier:
             victim = min(self._cold.items(), key=lambda kv: kv[1])[0]
             self._cold.pop(victim)
             self._values.pop(victim, None)
+            self._trace.record("lfru_evict", key=victim, band="cold")
             return victim
         if self._hot:
             victim = next(iter(self._hot))  # oldest
             self._hot.pop(victim)
             self._values.pop(victim, None)
+            self._trace.record("lfru_evict", key=victim, band="hot")
             return victim
         return None
