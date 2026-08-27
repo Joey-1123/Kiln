@@ -17,7 +17,7 @@ from rich.console import Console
 
 from kiln._bootstrap import force_utf8_stdio
 from kiln.utils import exitcodes
-from kiln.utils.errors import map_exception
+from kiln.utils.errors import KilnError, map_exception
 
 
 def _version_callback(
@@ -875,6 +875,57 @@ def export_gguf(
         if friendly.hint:
             console.print(f"[dim]{friendly.hint}[/dim]")
         raise typer.Exit(friendly.exit_code)
+
+
+@app.command()
+def quantize(
+    model_dir: Annotated[str, typer.Argument(help="Path to a merged HF model directory")],
+    scheme: Annotated[str, typer.Option("--scheme", "-s", help="gptq|awq")] = "gptq",
+    output_dir: Annotated[str, typer.Option("--output-dir", "-o")] = "./quantized",
+    calibration_data: Annotated[
+        str, typer.Option("--calibration-data", "-c", help="JSONL of calibration texts")
+    ] = "",
+    bits: Annotated[int, typer.Option("--bits")] = 4,
+    group_size: Annotated[int, typer.Option("--group-size")] = 128,
+) -> None:
+    """Quantize a fine-tuned model into a persistent GPTQ/AWQ artifact.
+
+    Calibration data (JSONL, one text per line) is required — quantization
+    quality depends on it.  ``awq`` also emits a GGUF for CPU serving.
+    """
+    from kiln.quant.quantize import QuantJob, _run_quantize
+
+    if not calibration_data:
+        console.print(
+            "[red]A calibration dataset is required: pass --calibration-data <file.jsonl>.[/red]"
+        )
+        raise typer.Exit(exitcodes.USAGE)
+
+    try:
+        job = QuantJob(
+            scheme=scheme,
+            model_dir=model_dir,
+            output_dir=output_dir,
+            calibration_data=calibration_data,
+            bits=bits,
+            group_size=group_size,
+        )
+        result = _run_quantize(job)
+    except KilnError as exc:
+        console.print(f"[red]{exc.message}[/red]")
+        if exc.hint:
+            console.print(f"[dim]{exc.hint}[/dim]")
+        raise typer.Exit(exc.exit_code)
+    except Exception as exc:
+        friendly = map_exception(exc)
+        console.print(f"[red]{friendly.message}[/red]")
+        if friendly.hint:
+            console.print(f"[dim]{friendly.hint}[/dim]")
+        raise typer.Exit(friendly.exit_code)
+
+    console.print(f"[green]Quantized ({result.scheme}) artifacts:[/green]")
+    for path, size in zip(result.output_paths, result.sizes_bytes):
+        console.print(f"  {path} ({size / (1024 * 1024):.1f} MB)")
 
 
 @app.command("recipe-list")

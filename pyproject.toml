@@ -49,6 +49,12 @@ serve = [
     "pyzmq>=25.0",
 ]
 ui = []
+quant = [
+    "auto-gptq>=0.7.1",
+    "autoawq>=0.2.0",
+    "datasets>=2.14",
+    "safetensors>=0.4",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",
