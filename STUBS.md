@@ -47,18 +47,24 @@ Everything else in the V1 surface matrix (CLI, API/OpenAI+Anthropic, TUI, MCP) i
 ## 3. Deferred to V2 / V3 (from the plan)
 
 ### V2 — 14B everywhere + smarter memory
+- **`kiln tune` self-calibration + measurement-cache** — ✅ implemented (A10).
+  `src/kiln/tune/` + `tune` CLI; GPU-UUID keyed, OutputDrift TTL guard.
+- **LFRU memory tier** — ✅ implemented (A5). `src/kiln/engine/cache_tier.py`
+  (cold LFU → hot LRU promotion).
+- **route_trace telemetry** — ✅ implemented (A5). `src/kiln/engine/route_trace.py`,
+  wired into the LFRU tier; opt-in via `KILN_ROUTE_TRACE=1`.
+- **Decode-only expert-budget guard** — ✅ implemented (A8).
+  `src/kiln/engine/expert_budget.py` raises `DecodeOnlyError` if trimming is
+  attempted outside the decode phase (colibri #292 lesson).
 - **Custom kernels / batching / expert-banks** behind the existing backend interface;
-  must match the transformers oracle **token-for-token at temp 0** (§8, line 96).
-- **Full ZMQ 3-process split** (gateway / engine / supervisor). V1 keeps gateway+engine
-  fused in one process over `asyncio.Queue` behind the transport seam; split deferred
-  until MoE banks / TP>1 / >~16 concurrent streams (A1). Torch-free supervisor already
-  separate.
-- **MoE expert offload / hybrid CPU↔GPU banks** — adopt FreeToken's
+  must match the transformers oracle **token-for-token at temp 0** (§8, line 96). *Not started.*
+- **Full ZMQ 3-process split** (gateway / engine / supervisor) — *deferred* per A1:
+  V1 keeps gateway+engine fused in one process over `asyncio.Queue` behind the
+  transport seam; split lands only with MoE banks / TP>1 / >~16 concurrent streams.
+  Torch-free supervisor already separate.
+- **MoE expert offload / hybrid CPU↔GPU banks** — *not started*; adopt FreeToken's
   `OffloadMoeCache` / `CpuMoeExecutor` model (D7, A9, Appendix B).
-- **Layer-streaming** training (opt-in) — Soup ladder extension (D5).
-- **`kiln tune` self-calibration + measurement-cache** — GPU-UUID-keyed JSON cache
-  driving prod backend choice (FreeToken `ft bench bw` / colibri `autotune.py` pattern);
-  includes OutputDrift disqualification (A10).
+- **Layer-streaming** training (opt-in) — Soup ladder extension (D5). *Not started.*
 
 ### V3 — Big MoE era
 - **Big MoE native support**: Qwen3-235B-A3B / GLM-MoE class.
