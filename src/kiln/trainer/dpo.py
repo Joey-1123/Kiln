@@ -1,6 +1,6 @@
 """DPO trainer wrapper — QLoRA NF4 via peft/trl.
 
-Landmine checklist (from Soup audit):
+Landmine checklist:
   1. DPO memory = 2× batch in VRAM preflight
   2. NaN guard: refuses to save if any loss is NaN
   3. Seed applied BEFORE get_peft_model

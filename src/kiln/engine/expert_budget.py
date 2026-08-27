@@ -1,9 +1,10 @@
-"""V2 expert-budget guard (plan A8, colibri EXPERT_BUDGET #292).
+"""V2 expert-budget guard (plan A8).
 
-colibri quarantined its expert-budget trimming because trimming during
-*prefill* corrupted attention. Kiln adopts the lesson up front: expert-budget
-trimming is **decode-only**. This primitive enforces that contract at runtime
-so future MoE/weight-bank code cannot regress into prefill-time trimming.
+Prior engine designs quarantined expert-budget trimming because trimming
+during *prefill* corrupted attention. Kiln adopts the lesson up front:
+expert-budget trimming is **decode-only**. This primitive enforces that
+contract at runtime so future MoE/weight-bank code cannot regress into
+prefill-time trimming.
 """
 
 from __future__ import annotations

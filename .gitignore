@@ -1,5 +1,5 @@
 # --- kiln ---
-# reference clones (Soup/colibri/FreeToken) are studied, never vendored
+# upstream reference sources are studied, never vendored
 references/
 
 .venv/

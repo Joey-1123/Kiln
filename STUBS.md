@@ -55,24 +55,24 @@ Everything else in the V1 surface matrix (CLI, API/OpenAI+Anthropic, TUI, MCP) i
   wired into the LFRU tier; opt-in via `KILN_ROUTE_TRACE=1`.
 - **Decode-only expert-budget guard** — ✅ implemented (A8).
   `src/kiln/engine/expert_budget.py` raises `DecodeOnlyError` if trimming is
-  attempted outside the decode phase (colibri #292 lesson).
+  attempted outside the decode phase (known prefill-corruption lesson).
 - **Custom kernels / batching / expert-banks** behind the existing backend interface;
   must match the transformers oracle **token-for-token at temp 0** (§8, line 96). *Not started.*
 - **Full ZMQ 3-process split** (gateway / engine / supervisor) — *deferred* per A1:
   V1 keeps gateway+engine fused in one process over `asyncio.Queue` behind the
   transport seam; split lands only with MoE banks / TP>1 / >~16 concurrent streams.
   Torch-free supervisor already separate.
-- **MoE expert offload / hybrid CPU↔GPU banks** — *not started*; adopt FreeToken's
-  `OffloadMoeCache` / `CpuMoeExecutor` model (D7, A9, Appendix B).
-- **Layer-streaming** training (opt-in) — Soup ladder extension (D5). *Not started.*
+- **MoE expert offload / hybrid CPU↔GPU banks** — *not started*; adopt the
+  offload-cache / cpu-expert-executor model (D7, A9, Appendix B).
+- **Layer-streaming** training (opt-in) — training-ladder extension (D5). *Not started.*
 
 ### V3 — Big MoE era
 - **Big MoE native support**: Qwen3-235B-A3B / GLM-MoE class.
 - **Expert offload runtime** (deeper than V2 hybrid).
 
 ### Cross-cutting constraints locked for V2+
-- **Expert-budget trimming is decode-only only** — colibri `EXPERT_BUDGET` is
-  quarantined (#292 prefill corruption). Any expert-trimming lever must be documented
+- **Expert-budget trimming is decode-only only** — the expert-budget rule is
+  quarantined (prefill corruption). Any expert-trimming lever must be documented
   decode-only from day 1 (A8).
 - **Parity oracle remains the gate** for every new engine/kernels path: logit-window
   tolerance + task-level equivalence (bit-exact cross-engine is impossible) (§8.1, A8).
@@ -81,14 +81,13 @@ Everything else in the V1 surface matrix (CLI, API/OpenAI+Anthropic, TUI, MCP) i
 
 ## 4. V2 engine-mining targets (Appendix B — named god nodes to mine)
 
-From the fresh reference graphs (colibri + FreeToken):
-- colibri: `expert_store`, `tier.h` (LFRU), `route_trace.h`, `autotune.py`.
-- FreeToken: `cache_budget.py` (pure q* math), `OffloadMoeCache` (79), `CpuMoeExecutor`
-  (123), `engine/graph.py` (CUDA-graph-capturable decode).
-- Adopt FreeToken's `cache_budget.py` *pure-function* pattern verbatim behind
-  `BackendInfo` (A9).
-- **Do NOT copy** from FreeToken: unwired safety gates (A11), reward-hacking subsystem
-  (18 TODOs — immature).
+From the fresh reference graphs:
+- LFRU placement tier, route telemetry, auto-tuning.
+- Pure-function budget math, offload cache, cpu-expert executor, graph-capturable
+  decode.
+- Adopt the *pure-function* budget pattern verbatim behind `BackendInfo` (A9).
+- **Do NOT copy**: unwired safety gates (A11), reward-hacking subsystem
+  (immature).
 
 ---
 

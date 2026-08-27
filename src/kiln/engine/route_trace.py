@@ -1,9 +1,9 @@
-"""V2 route_trace telemetry (plan A5, colibri ``route_trace.h`` pattern).
+"""V2 decode telemetry (plan A5).
 
 A tiny, thread-safe event recorder the engine tiers emit into. Disabled by
 default (env ``KILN_ROUTE_TRACE=1``); never imports heavy deps, so it is safe
 to construct anywhere in the torch-free zone. Telemetry is what makes future
-PILOT-style prefetch a *measurement-dependent* win rather than a guess.
+predictive prefetch a *measurement-dependent* win rather than a guess.
 """
 
 from __future__ import annotations

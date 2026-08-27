@@ -1,11 +1,11 @@
-"""V2 memory tier — LFRU cache (plan A5, colibri ``tier.h`` pattern).
+"""V2 memory tier — LFRU cache (plan A5).
 
 Least-Frequently-Recent-Used: items live in a *cold* band (evicted by lowest
 access frequency, FIFO on ties) until they cross ``promotion_threshold``
 accesses, then move to a *hot* band (evicted LRU). This is the cache tier
 Kiln's future expert/weight banks will sit behind; shipped now as a
 dependency-free, fully-tested primitive so later engine work can adopt it
-incrementally (prefetch/PILOT stays deferred per the plan).
+incrementally (predictive prefetch stays deferred per the plan).
 """
 
 from __future__ import annotations

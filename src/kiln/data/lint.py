@@ -1,6 +1,6 @@
 """Data lint: fail loud with human-facing row numbers before GPU hours burn.
 
-The canonical bug this exists to prevent is Soup's "assistant-only masking
+The canonical bug this exists to prevent is the "assistant-only masking
 trained on zero tokens": a dataset where no row has an assistant/output turn
 produces a perfectly healthy-looking loss curve while teaching nothing.
 """

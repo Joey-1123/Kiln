@@ -1,6 +1,6 @@
 """Capability probes via inspect.signature — never version tables.
 
-Soup landmine: checking transformers.__version__ to decide API shape
+Checking transformers.__version__ to decide API shape
 breaks silently when upstream changes internals.  Instead we probe
 the actual constructor signature at runtime.
 

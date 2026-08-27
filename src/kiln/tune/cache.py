@@ -1,10 +1,9 @@
 """V2 measurement-cache for self-calibration (plan A10).
 
 Stores a GPU-UUID (or stable host-fingerprint) keyed bandwidth measurement
-in ``$XDG_CACHE_HOME/kiln/benchbw/<key>.json`` — the FreeToken ``benchbw``
-pattern. Consumed by ``plan`` to choose prod backend strategy (offload vs
-hybrid vs cpu). Entries carry a measurement timestamp so stale/OutputDrift
-results can be disqualified.
+in ``$XDG_CACHE_HOME/kiln/measurements/<key>.json``. Consumed by ``plan`` to
+choose prod backend strategy (offload vs hybrid vs cpu). Entries carry a
+measurement timestamp so stale results can be disqualified.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ def cache_root() -> Path:
         return Path(env)
     xdg = os.environ.get("XDG_CACHE_HOME")
     base = Path(xdg) if xdg else Path.home() / ".cache"
-    return base / "kiln" / "benchbw"
+    return base / "kiln" / "measurements"
 
 
 def _gpu_uuid() -> str | None:

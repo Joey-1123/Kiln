@@ -163,8 +163,8 @@ def tune(
     """Self-calibrate this machine's bandwidth and recommend a backend strategy.
 
     Writes a GPU-UUID (or stable host-fingerprint) keyed measurement into the
-    cache consumed by `plan` for prod backend selection (FreeToken `benchbw`
-    pattern, plan A10). Stale entries are disqualified by timestamp.
+    cache consumed by `plan` for prod backend selection (plan A10). Stale
+    entries are disqualified by timestamp.
     """
     from kiln.tune.cache import MeasurementCache, host_uuid
     from kiln.tune.measure import measure_bandwidth_gbps, recommend

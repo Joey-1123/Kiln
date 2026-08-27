@@ -6,7 +6,7 @@ Taxonomy (pinned by tests/test_exit_codes.py):
   2  VERDICT_FAIL  - an eval gate produced a DON'T-SHIP verdict (NOT a user error)
   3  USAGE         - bad flags/config/validation
 
-Soup lesson (v0.71.38): a caught regression must never share a code with a
+A caught regression must never share a code with a
 usage error — they were both `2` and operators could not tell them apart.
 """
 

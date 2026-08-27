@@ -1,7 +1,7 @@
 """Doctor — system health checks.
 
-Quick mode (default): dependency + GPU + RAM checks (Soup-style).
-Deep mode (--deep): full validation including engine binaries, model checks (Colibri-style).
+Quick mode (default): dependency + GPU + RAM checks.
+Deep mode (--deep): full validation including engine binaries, model checks.
 
 Structured JSON output via --json.
 Exit code: 0=healthy, 1=issues found.

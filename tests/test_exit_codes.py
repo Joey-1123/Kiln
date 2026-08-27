@@ -1,7 +1,8 @@
 """Contract: the exit-code taxonomy is pinned. Never merge these again.
 
-Soup lesson (v0.71.38): verdict-fail shared a code with usage errors until it
-was split; operators could not tell a caught regression from a typo'd flag.
+A caught regression must never share a code with a usage error.
+Verdict-fail and usage-error shared code 2 until split; operators
+could not tell a caught regression from a typo'd flag.
 """
 
 from __future__ import annotations

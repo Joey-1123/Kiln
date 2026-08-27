@@ -1,6 +1,6 @@
 """SFT trainer wrapper — QLoRA NF4 via peft/trl.
 
-Landmine checklist (baked in from Soup audit):
+Landmine checklist:
   1. Seed applied BEFORE get_peft_model
   2. Construct SFTConfig directly (passing TrainingArguments silently drops max_length)
   3. Capability probes via _compat, never version tables
@@ -141,7 +141,7 @@ def _run_sft(
         task_type="CAUSAL_LM",
     )
 
-    # --- 6. Apply LoRA BEFORE training (Soup landmine: seed must come first) ---
+    # --- 6. Apply LoRA BEFORE training (seed must come first) ---
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
@@ -154,7 +154,7 @@ def _run_sft(
                 records.append(json.loads(line))
     dataset = Dataset.from_list(records)
 
-    # --- 8. SFTConfig (NOT TrainingArguments — Soup landmine #2) ---
+    # --- 8. SFTConfig (NOT TrainingArguments) ---
     training_args = SFTConfig(
         output_dir=output_dir,
         num_train_epochs=epochs,

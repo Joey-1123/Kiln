@@ -1,6 +1,6 @@
 """The startup-light probe: heavy deps never load outside training commands.
 
-This replaces per-module AST guards, which proved insufficient in Soup's
+This replaces per-module AST guards, which proved insufficient in prior
 history: they verify a syntactic property and miss transitive imports and
 "lazy factory called at module scope" regressions. A fresh subprocess is the
 only honest witness.

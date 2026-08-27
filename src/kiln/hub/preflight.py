@@ -1,6 +1,6 @@
 """Disk preflight: know whether a model fits BEFORE downloading a byte.
 
-The engine never lies about limits (colibri rule): `kiln fetch` refuses with
+The engine never lies about limits: `kiln fetch` refuses with
 exact numbers when free space is insufficient instead of failing at 80%.
 """
 

@@ -1,6 +1,6 @@
 """Kiln Gateway — FastAPI app, OpenAI/Anthropic-compatible API.
 
-Agent-compat rules from FreeToken:
+Agent-compat rules:
   - Anthropic streams end on message_stop (no [DONE] sentinel)
   - 15s SSE keepalive pings
   - Error envelope, not FastAPI default detail
@@ -522,7 +522,7 @@ async def _stream_anthropic(
 ) -> Any:
     """Stream Anthropic SSE format.
 
-    Anthropic rules (FreeToken lessons):
+    Anthropic rules:
       - message_start → content_block_delta → message_stop
       - NO [DONE] sentinel
     """
