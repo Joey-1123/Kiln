@@ -37,8 +37,8 @@ Legend: ✅ implemented · ❌ stub / not built · 🔁 deferred to V2/V3
 
 | Surface | Plan ref | Status |
 |---|---|---|
-| React + TS + Vite web dashboard (`web/`) | §5, §6 (line 54, 148) | ❌ not started (no `web/` dir) |
-| Tauri v2 desktop shell (`desktop/`, reuses web bundle) | §5, §6 | ❌ not started (no `desktop/` dir) |
+| React + TS + Vite web dashboard (`ui/web/`) | §5, §6 (line 54, 148) | ✅ implemented (talks to `kiln serve`; health/models/chat/metrics) |
+| Tauri v2 desktop shell (`ui/desktop/`, reuses web bundle) | §5, §6 | ✅ scaffolded (bundles `ui/web/dist`; run `tauri icon` to add icons before `tauri build`) |
 
 Everything else in the V1 surface matrix (CLI, API/OpenAI+Anthropic, TUI, MCP) is built.
 

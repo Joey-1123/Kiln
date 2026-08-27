@@ -37,6 +37,7 @@ from kiln.engine.messages import (
     ToolDefinition,
     Transport,
 )
+from kiln.engine.metrics import MetricsCollector, summarise
 
 log = logging.getLogger(__name__)
 
@@ -206,6 +207,7 @@ def create_gateway(
     app.state.api_token = api_token
     app.state._pending: dict[str, _PendingFut] = {}
     app.state._response_transport = response_transport or transport
+    app.state.metrics = MetricsCollector()
 
     # -----------------------------------------------------------------------
     # Auth middleware
@@ -250,6 +252,11 @@ def create_gateway(
     # -----------------------------------------------------------------------
     # Models
     # -----------------------------------------------------------------------
+
+    @app.get("/v1/metrics")
+    async def metrics() -> dict[str, Any]:
+        """Serving metrics summary (TTFT / tok-s) for the dashboard."""
+        return summarise(app.state.metrics.snapshot())
 
     @app.get("/v1/models")
     async def list_models() -> OpenAIModelList:
@@ -332,6 +339,7 @@ def create_gateway(
             tools=tools,
             stop=stop,
         )
+        app.state.metrics.start(req_id)
 
         if body.stream:
             return StreamingResponse(
@@ -368,6 +376,7 @@ def create_gateway(
             )
         finally:
             app.state._pending.pop(req_id, None)
+            app.state.metrics.finish(req_id)
 
     # -----------------------------------------------------------------------
     # Anthropic-compatible messages
@@ -395,6 +404,7 @@ def create_gateway(
             stream=body.stream,
             stop=stop,
         )
+        app.state.metrics.start(req_id)
 
         if body.stream:
             return StreamingResponse(
@@ -425,13 +435,13 @@ def create_gateway(
                 },
             )
         except asyncio.TimeoutError:
-            err_detail = {
-                "type": "error",
-                "error": {"type": "timeout_error", "message": "Generation timed out"},
-            }
-            return JSONResponse(status_code=504, content=err_detail)
+            return JSONResponse(
+                status_code=504,
+                content={"error": {"code": "timeout", "message": "Generation timed out"}},
+            )
         finally:
             app.state._pending.pop(req_id, None)
+            app.state.metrics.finish(req_id)
 
     # -----------------------------------------------------------------------
     # Response listener (engine → gateway)
@@ -483,6 +493,8 @@ async def _stream_openai(
 
                 last_send = time.time()
                 if isinstance(msg, TokenDelta):
+                    if msg.token:
+                        state.metrics.token(req.request_id)
                     chunk = {
                         "id": f"chatcmpl-{req.request_id}",
                         "object": "chat.completion.chunk",
@@ -512,6 +524,7 @@ async def _stream_openai(
                     last_send = time.time()
     finally:
         state._pending.pop(req.request_id, None)
+        state.metrics.finish(req.request_id)
         yield "data: [DONE]\n\n"
 
 
@@ -564,6 +577,7 @@ async def _stream_anthropic(
 
                 last_send = time.time()
                 if isinstance(msg, TokenDelta) and msg.token:
+                    state.metrics.token(req.request_id)
                     yield _sse_format({
                         "type": "content_block_delta",
                         "index": 0,
@@ -583,6 +597,7 @@ async def _stream_anthropic(
                     last_send = time.time()
     finally:
         state._pending.pop(req.request_id, None)
+        state.metrics.finish(req.request_id)
         # Anthropic: message_stop, NOT [DONE]
         yield _sse_format({"type": "message_stop"}, event="message_stop")
 

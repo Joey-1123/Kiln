@@ -31,6 +31,15 @@ class TestHealthEndpoint:
         assert r.json()["status"] == "timeout"
 
 
+class TestMetricsEndpoint:
+    async def test_empty_summary(self):
+        t = QueueTransport(maxsize=4)
+        app = create_gateway(transport=t, model_name="m")
+        r = await _get(app, "/v1/metrics")
+        assert r.status_code == 200
+        assert r.json()["requests"] == 0.0
+
+
 class TestAuthMiddleware:
     async def test_no_token_by_default(self):
         t = QueueTransport(maxsize=4)

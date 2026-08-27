@@ -31,6 +31,11 @@ data/raw/
 .DS_Store
 Thumbs.db
 
+# node / tauri build artifacts
+node_modules/
+ui/desktop/src-tauri/target/
+ui/desktop/src-tauri/gen/
+
 # local / session-specific artifacts (not part of the shipped project)
 WORKLOG.md
 decision.md
