@@ -1,9 +1,9 @@
-# FINAL PLAN — Kiln (v1.2)
+# FINAL PLAN — Kiln (v1.3)
 
 > Status: **FINAL** — brand = **Kiln**, package = **`kiln-cli`**, CLI = `kiln`.
-> v1.2: amendments A1–A6 from the post-audit comparison of all three references
+> v1.3: merges v1.2 + fresh 2026-08-27 re-read of all three references (Soup + colibri re-cloned & graphified; FreeToken re-added fresh). Amendments A1–A11.
 > (`specs/references-analysis.md` + audit reports; see §13).
-> Supersedes v1.0/v1.1. All decisions locked.
+> Supersedes v1.0/v1.1/v1.2 (merged into one file). All decisions locked; §14 + Appendices A–C add the fresh-reference evidence.
 > References analyzed: `references/{Soup,colibri,FreeToken}` · findings in `specs/references-analysis.md`
 > Engine-internals improvement track: **colibri** is the primary reference for memory-tiering /
 > streaming techniques we will borrow in V2/V3 (see §4 note + §11).
@@ -200,3 +200,93 @@ Multimodal/vision/audio · cloud/training orchestration · multi-user teams/auth
 | A6 | Write the real env-inventory generator script colibri never automated (theirs is a manual/AI-assisted procedure despite "Generated" header); CI drift check | colibri `docs/MAINTAINING-DOCS.md`; scanning Python getenv sites is trivial by comparison |
 
 Also adopted from the audit (no decision change required): agent-compat API rules into §4 (Anthropic no-[DONE] sentinel, SSE keepalive pings, error envelope override, terminal-error-with-code guarantee, system-message hoisting, count_tokens off hot path); BackendInfo pure-flag capability registry pattern; ready-ack supervisor protocol; config fingerprint/provenance stamping; oracle multi-capacity gating; changelog fragments + version-sync tests from commit #1.
+
+---
+
+## 14. Amendments v1.3 (from fresh reference re-reads: Soup · colibri · FreeToken)
+
+| # | Amendment | Rationale (fresh evidence) | Change vs v1.2 |
+|---|---|---|---|
+| **A7** | FreeToken is a **first-class reference**, on par with Soup + colibri. Document the explicit topology mapping: FreeToken `frontend ⇄ ZMQ ⇄ tokenizer ⇄ scheduler` ⇄ Kiln `gateway ⇄ engine ⇄ torch-free supervisor`, behind our A1 transport seam. | FreeToken freshly re-read (was shallow in v1.2). Its 3-process split is the production shape; it *also* ships an in-process offline mode (`scheduler/io.py`), confirming A1's "V1 doesn't need 3 processes; supervisor covers segfault survivability." | No decision change — adds the mapping so the eventual ZMQ split is a constructor change, not a redesign. |
+| **A8** | **Elevate the CPU↔GPU parity oracle to a hard release gate** and lock "expert-budget trimming is decode-only" into the V2 spec. | colibri itself states GPU float matmul ≠ CPU int8 (NOT token-identical; `GPU_BACKENDS.md`). Kiln's V1 runs two *different* engines (native torch vs llama.cpp/GGUF), so cross-backend bit-exactness is impossible — v1.2 already says "logit-window tolerance + task-level equivalence where bit-exactness doesn't hold" but it must be a **CI gate**, not prose. colibri `EXPERT_BUDGET` is quarantined (#292 prefill corruption) → confirms our V2 note. | Strengthens D6 / §8.1: parity oracle becomes a blocking release job; V2 expert-trimming lever documented as decode-only from day 1. |
+| **A9** | **V2/V3 engine-mining track gets concrete god-node targets** from the fresh graphs (see Appendix B). Adopt FreeToken's `cache_budget.py` *pure-function* pattern verbatim behind `BackendInfo`. | Fresh god nodes: colibri `Dsv4CudaTensor`/`expert_store`/`tier.h`/`route_trace.h`; FreeToken `OffloadMoeCache` (79), `CpuMoeExecutor` (123), `cache_budget.py` (pure q* math), graph-capturable decode. These are the exact internals to mine for Kiln's V2 offload banks / elastic VRAM. | No decision change — turns the vague "mine colibri" note (§4/V2) into a named, measurable work list. |
+| **A10** | Add a **measurement-cache** + `kiln tune` self-calibration spec (FreeToken `benchbw` pattern) to V2. | FreeToken `ft bench bw` writes `$XDG_CACHE_HOME/freetoken/benchbw/<gpu-uuid>.json` and drives prod backend choice (offload vs hybrid). Kiln has `doctor`/`plan` but no bandwidth self-calibration artifact; colibri `autotune.py` is the same idea. | Extends V2 "dashboard metrics / autotune skeleton" into a concrete `tune` subcommand with a GPU-UUID-keyed cache + OutputDrift disqualification (already in §8.7). |
+| **A11** | Record a **deliberate divergence**: Kiln's eval gate *enforces*; Soup's safety gates *warn-but-no-op*. | Fresh Soup read: `forgetting_detection` / `checkpoint_intelligence` / `early_stop_on_regression` are accepted but **not enforced** (console warning only, `commands/train.py:709-729`). Kiln's `ship_verdict` is a hard exit-code gate — stricter by design. | No decision change — documents why we do NOT copy Soup's unwired-gate pattern; adds to §9 non-goals rationale. |
+
+### Also adopted from the fresh audit (no decision change)
+- FreeToken's **capability matrix validated at config time, not post-load** (`engine/engine.py:158-199`, `test_attention_backend_matrix.py`) — matches our `BackendInfo` registry; keep it pre-load.
+- FreeToken's **torch-free daemon + import-sentinel test** (`daemon/__init__.py`, `test_daemon_import_safety.py`) — confirms Kiln's supervisor design (M4-D1/M6 torch-free zone).
+- colibri's **format predicate at the device decoder** + **safetensors header cap** — the discipline behind D6; if Kiln ever adds a native quant kernel, copy these refusal patterns.
+- FreeToken's **env-key scrubbing when launching agents** (`launch.py`) — adopt *if/when* Kiln adds an agent-launch surface; today its MCP execute-gating (D7/M6-D4) covers the same threat.
+
+---
+
+## Appendix A — 3-reference × Kiln decision comparison matrix
+
+Verdict legend: ✅ confirmed · ⚠️ confirmed-with-caveat · 🔁 refine · ➖ not applicable.
+
+| Kiln v1.2 pattern | Soup (fresh) | colibri (fresh) | FreeToken (fresh) | Verdict |
+|---|---|---|---|---|
+| D1 Python core + Triton/native kernels | Python/Typer/pydantic; kernels via peft/trl | Pure-C engine, zero deps | Python + Triton + 2 C++ exts | ✅ aligned (Kiln = Python-first like Soup/FreeToken) |
+| D2 Dense 7–14B + small MoE; big MoE V3 | 24 tasks, any AutoModelForCausalLM | 744B–2.8T MoE native | 290B+ MoE native (DeepSeek-V4/GLM/...) | ✅ Kiln's staged MoE matches both |
+| D5 Soup ladder QLoRA NF4 + peft/trl | SFT/DPO/GRPO/KTO… on peft/trl | n/a (inference) | n/a (inference) | ✅ direct lineage |
+| D6 placement/quant changes speed, never tokens | "bit-exact streamed vs resident" claimed (BETA) | invariant, **but GPU float ≠ CPU int8** | parity oracles vs HF reference | ⚠️ keep tolerance gate; not literally bit-exact cross-engine |
+| D7 dual-backend (torch + llama.cpp/GGUF) | single torch path | single C engine, multi-tier | offload/offload-hybrid/cpu MoE backends | 🔁 adopt FreeToken's offload/hybrid as V2 CPU↔GPU bank model |
+| A1 fused 1-process gateway+engine, ZMQ deferred | MCP server (1 proc) | sentinel stdio engine⇄gateway | 3-proc ZMQ + in-proc offline mode | ✅ A1 validated by FreeToken's own offline mode |
+| A2 torch-free message codec | n/a | gateway stdio sentinel framed | msgpack dataclasses, 1D tensors only | ✅ aligned |
+| Config single-source-of-truth (schema.py) | `SoupConfig` 6.8k lines | env vars in one `main()` | `ModelConfig` (197 edges, god node) | ✅ Kiln `KilnConfig` mirrors the pattern (lighter) |
+| Light/torch-free control plane | lazy-import probe test | stdlib-only `coli` | torch-free daemon + sentinel test | ✅ Kiln supervisor matches |
+| Capability matrix / plugin seams | trainer task wrappers | expert-store ops-struct | `BackendInfo` + attention matrix | ✅ Kiln `BackendInfo` confirmed best-practice |
+| doctor/plan/tune triad | `soup doctor` | `coli plan/doctor/tune` | `ft bench bw` + `ft daemon` | 🔁 add `kiln tune` (A10) |
+| Semantic exit codes + friendly errors | ship 0/1/2/3 + fix cmd | n/a | X-FT-Token control plane | ✅ Kiln taxonomy matches |
+| Oracle/measurement CI culture | published benchmarks | transformers oracle, tiny fixtures | HF/vLLM/reference oracles, radix reference model | ✅ adopt as hard gate (A8) |
+| Windows first-class | UTF-8 bootstrap, containment | MinGW↔MSVC DLL hygiene | desktop (Tauri) CORS-centric | ✅ Kiln windows-latest CI aligned |
+
+**Net:** Kiln's v1.2 design survives the fresh re-read. Two refinements only: (1) make the parity
+oracle a *blocking* CI gate (A8), and (2) add a `tune` self-calibration command + concrete V2/V3
+mining targets (A9/A10). No architectural decision is overturned.
+
+---
+
+## Appendix B — V2/V3 engine-mining targets (from fresh god-node graphs)
+
+These are the specific internals to mine, in priority order, behind our `BackendInfo` capability matrix.
+Never a fork — always measured end-to-end before adoption (colibri research culture, D6).
+
+**colibri (C engine, reference for tiering/streaming discipline)**
+- `tier.h` — LFRU placement math (~100 LOC pure logic; adopt as Python first, C later).
+- `route_trace.h` — routing-heat telemetry → `.usage` learning cache (~300 LOC).
+- `expert_store.h` / `expert_store_registry.h` — ops-struct plugin seam w/ strict lease contract
+  (lookup→release paired; `destroy()` requires zero active leases). Model Kiln's future expert store.
+- `st.h` — safetensors index, `O_DIRECT`/`pread`, mirror replicas, `ST_MAX_HEADER` cap.
+- `quant.h` — SIMD kernel family (int8/i4/i3/E8/IQ3/MXFP4). Reference if Kiln adds custom quant kernels.
+- PILOT router-lookahead prefetch — **LAST** (measurement-dependent, sometimes net-negative per colibri ledger).
+
+**FreeToken (Python/Triton, closest engine shape to Kiln's V2)**
+- `engine/cache_budget.py` — **pure-function** q* budget math (MoE-first split, no torch). Adopt verbatim.
+- `moe/offload_cache.py` (`OffloadMoeCache`, 79 edges) + `moe/offload_kernels.py` (`ensure_experts`
+  LRU slot-cache) — the offload/hybrid CPU↔GPU bank model for Kiln V2.
+- `moe/cpu_moe.py` (`CpuMoeExecutor`, 123 edges) — CPU-compute fallback for misses (AVX512-BF16).
+- `engine/graph.py` — CUDA-graph-capturable decode (constant-address inputs). V2 "first fused Triton kernels" target.
+- `engine/engine.py:_resolve_hybrid_fetch` + `moe/benchbw.py` — bandwidth-adaptive `hybrid_fetch_fraction`
+  (the real "q* policy"). Source for Kiln `tune` (A10).
+- `kvcache/` radix/ShadowRadix + `dsv4_paged_pool` — prefix-cache + paged KV; reference for Kiln KV rebalance.
+
+**Soup (training/governance — already mined in v1.0/v1.2)**
+- Retain: config discipline, lazy-import probe, path containment, error mapping, exit codes, MCP gating.
+- **Do NOT copy:** unwired safety gates (A11), reward-hacking subsystem (18 TODOs — immature).
+
+---
+
+## Appendix C — Analysis artifacts
+
+- Fresh deep clones + spec-miner reports: `/home/joey/projects/{Soup,colibri,FreeToken}`
+- Knowledge graphs (god nodes, communities, surprising connections):
+  - `/home/joey/projects/Soup/graphify-out/graph.html` + `GRAPH_REPORT.md` (33,753 nodes)
+  - `/home/joey/projects/colibri/graphify-out/graph.html` + `GRAPH_REPORT.md` (6,547 nodes)
+  - `/home/joey/projects/FreeToken/graphify-out/graph.html` + `GRAPH_REPORT.md` (7,994 nodes)
+- Kiln is already implemented through Milestone 6 (207 tests passing, `COMPLETE.md`); this v1.3 is a
+  **planning** amendment, not a code change. Next action: when V2 starts, open `tier.h`/`cache_budget.py`
+  ports and stand up the parity-oracle CI gate from A8.
+
+(End of v1.3 — supersedes v1.2. Sections §1–§13 unchanged; read `specs/project-plan.md`.)

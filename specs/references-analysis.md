@@ -118,6 +118,61 @@ Together they span train → serve → operate on consumer hardware. A new proje
 3. Which model families/architectures are first-class (MoE? hybrid GDN/SSM? dense)?
 4. Minimum hardware floor (laptop-class like colibri's 25 GB origin, or gaming-GPU like FreeToken)?
 5. Do we need the compliance/governance surface (BOM, attestations, audit logs — Soup-style) from day one?
+---
+
+*Cloned to `D:\projects\xd\references\{Soup,colibri,FreeToken}` (shallow clones). Full per-repo details retained in the analysis transcripts; ask to expand any section.*
 
 ---
-*Cloned to `D:\projects\xd\references\{Soup,colibri,FreeToken}` (shallow clones). Full per-repo details retained in the analysis transcripts; ask to expand any section.*
+
+## 8. Fresh re-read (2026-08-27) — god nodes, security, risks, corrections
+
+Soup + colibri were re-cloned and deep-analyzed via spec-miner + graphify (god-node graphs) on
+2026-08-27; **FreeToken was re-added fresh** (it was in the v1.2 analysis but only shallow-read).
+Findings below are the delta vs §2–§4 and feed `specs/project-plan-v1.3.md`.
+
+### 8.1 Soup — fresh depth
+- **God nodes** (`SoupConfig` 587 edges, `load_config_from_string()` 543, `TrainingConfig` 350,
+  `is_under_cwd()` 234, `RegistryStore`, `ExperimentTracker`): config is even more central than §2 implied.
+- **Security confirmed:** `trust_remote_code` default-deny; `realpath`+`commonpath` containment
+  (`is_under_cwd`); MCP Bearer + DNS-rebind protection; fail-soft audit log.
+- **⚠️ Correction / do-NOT-copy:** `forgetting_detection` / `checkpoint_intelligence` /
+  `early_stop_on_regression` are accepted but **not enforced** (console warning only,
+  `commands/train.py:709-729`). Kiln's `ship_verdict` is a hard exit-code gate — stricter on purpose (plan A11).
+- **Risk:** `reward_hacking.py` has 18 TODO/FIXME (most immature subsystem) — Kiln has no equivalent; fine.
+- **Layer streaming still BETA** in Soup — Kiln correctly defers it to V2.
+
+### 8.2 colibri — fresh depth
+- **God nodes** (`Dsv4CudaTensor` 117, `ok()` 75, `Dsv4CudaActivation` 70, `ColiCudaTensor` 61,
+  `main()` 55, `Dsv4CudaExpertSet` 49): the CUDA/DSV4 tensor + expert-set abstractions are the engine core.
+- **⚠️ Correction to D6 invariant:** colibri states GPU float matmul ≠ CPU int8 — **NOT token-identical**
+  across backends (`GPU_BACKENDS.md`). The "placement changes speed never tokens" rule holds *within* a
+  backend; cross-backend parity needs tolerance. Kiln runs two different engines (torch vs llama.cpp),
+  so its V1 parity oracle must be a **logit-window tolerance + task-level** gate, never bit-exact (plan A8).
+- **Quarantine confirms V2 note:** `EXPERT_BUDGET` is disabled (#292 prefill corruption) → any
+  expert-trimming lever in Kiln MUST be decode-only.
+- **Mining targets named:** `tier.h` (LFRU), `route_trace.h` (heat telemetry), `expert_store.h`
+  (ops-struct lease seam), `st.h` (safetensors+O_DIRECT), `quant.h` (SIMD kernels), PILOT prefetch last.
+
+### 8.3 FreeToken — fresh depth (re-added)
+- **God nodes** (`ModelConfig` 197, `BaseOP` 149, `CpuMoeExecutor` 123, `get_global_ctx()` 122,
+  `Batch` 111, `OffloadMoeCache` 79, `Scheduler` 63): `ModelConfig` + `OffloadMoeCache` +
+  `CpuMoeExecutor` are the load-bearing abstractions for Kiln's future offload work.
+- **Topology confirmed:** 3-process `frontend ⇄ ZMQ ⇄ tokenizer ⇄ scheduler` **plus** an in-process
+  offline mode — validates Kiln's A1 (fused 1-process in V1, ZMQ deferred behind transport seam).
+- **Pure-function policy pattern:** `engine/cache_budget.py` (q* MoE-first budget math, no torch) is the
+  exact shape to adopt behind Kiln's `BackendInfo`.
+- **Self-calibration:** `ft bench bw` writes a GPU-UUID-keyed JSON driving offload vs hybrid → source
+  for a Kiln `tune` subcommand (plan A10).
+- **torch-free daemon + import-sentinel test** (`daemon/__init__.py`, `test_daemon_import_safety.py`)
+  confirms Kiln's supervisor design.
+- **Security:** env-key scrubbing when launching agents (`launch.py`) — adopt only if Kiln adds an
+  agent-launch surface; today MCP execute-gating covers the threat.
+- **Risk:** CLI surface intentionally untested (policy); `Marlin NVFP4` path unpinned/unofficial.
+
+### 8.4 Shared-DNA confirmation (graphify cross-repo)
+All three graphs surface the same architectural spine Kiln already copied: a single config/schema
+god-object, a torch-free/supervisor control plane, capability-matrix backend selection, and
+oracle/measurement CI. The fresh reads **do not overturn any v1.2 decision**; they sharpen V2/V3
+mining (Appendix B of `project-plan-v1.3.md`) and elevate the parity oracle to a hard gate (A8).
+
+*Fresh deep clones + graphs: `/home/joey/projects/{Soup,colibri,FreeToken}/graphify-out/`.*
