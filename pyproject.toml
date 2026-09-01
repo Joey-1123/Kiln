@@ -70,6 +70,8 @@ dev = [
     # (pytest tests/) fails collection without them.
     "prompt_toolkit>=3.0",
     "mcp>=2.0",
+    # test_version_sync.py imports tomllib; on Python < 3.11 it's the tomli backport.
+    "tomli>=2.0; python_version < '3.11'",
 ]
 all = ["kiln-cli[train,serve,ui]"]
 
