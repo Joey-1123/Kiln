@@ -19,6 +19,8 @@ from kiln.engine.backends import BackendInfo, select_backend
 from kiln.engine.batching import ContinuousBatcher
 from kiln.engine.decode_scheduler import DecodeScheduler
 from kiln.engine.messages import (
+    CacheRebuildRequest,
+    CacheRebuildResponse,
     EngineMessage,
     GenerateComplete,
     GenerateError,
@@ -159,6 +161,8 @@ class Engine:
             await self._handle_health(msg)
         elif isinstance(msg, LoadModelRequest):
             await self._handle_load_model(msg)
+        elif isinstance(msg, CacheRebuildRequest):
+            await self._handle_cache_rebuild(msg)
         else:
             log.warning("Unknown message type: %s", type(msg).__name__)
 
@@ -331,3 +335,31 @@ class Engine:
                 parts.append(f"<|tool|>\n{msg.content}\n")
         parts.append("<|assistant|>\n")
         return "".join(parts)
+
+    async def _handle_cache_rebuild(self, req: CacheRebuildRequest) -> None:
+        """Elastic VRAM rebalance for the current offload coordinator."""
+        if self._offload is None:
+            await self._eng.put(GenerateError(
+                request_id=req.request_id,
+                error_code="no_offload",
+                error_message="No offload coordinator configured; nothing to rebalance.",
+            ))
+            return
+        try:
+            evicted = self._offload.rebalance(keep_fraction=req.keep_fraction)
+            stats = self._offload.stats()
+            await self._eng.put(CacheRebuildResponse(
+                request_id=req.request_id,
+                evicted=evicted,
+                resident=stats.resident_experts,
+                registered=stats.registered_experts,
+                gpu_used_bytes=stats.gpu_used_bytes,
+                gpu_capacity_bytes=stats.gpu_capacity_bytes,
+                phase=stats.phase,
+            ))
+        except ValueError as exc:
+            await self._eng.put(GenerateError(
+                request_id=req.request_id,
+                error_code="invalid_keep_fraction",
+                error_message=str(exc),
+            ))

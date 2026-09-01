@@ -117,3 +117,41 @@ def test_build_expert_bank_accepts_mover():
     bank.enter_decode()
     bank.ensure_resident(bank.experts["l0.e0"])
     assert any(m[0] == "l0.e0" for m in moves)
+
+
+async def test_engine_cache_rebuild_handler():
+    import asyncio
+
+    from kiln.engine.engine import Engine
+    from kiln.engine.messages import (
+        CacheRebuildRequest,
+        CacheRebuildResponse,
+        GenerateError,
+        QueueTransport,
+    )
+
+    gw_to_engine = QueueTransport()
+    eng_to_gw = QueueTransport()
+    e = Engine(gateway_transport=gw_to_engine, engine_transport=eng_to_gw)
+
+    # No coordinator yet -> no_offload error.
+    await e._dispatch(CacheRebuildRequest(request_id="c0", keep_fraction=0.5))
+    err = await asyncio.wait_for(eng_to_gw.get(), timeout=2)
+    assert isinstance(err, GenerateError)
+    assert err.error_code == "no_offload"
+
+    # Wire an offload coordinator and make some experts resident.
+    coord = e.init_offload(_spec(), gpu_capacity_bytes=10_000, strategy="offload")
+    coord.begin_decode()
+    coord.ensure_experts(["l0.e0", "l0.e1", "l0.e2"])
+    coord.end_phase()
+    assert coord.stats().resident_experts >= 3
+
+    # Rebalance to a small keep_fraction evicts residents and reports stats.
+    await e._dispatch(CacheRebuildRequest(request_id="c1", keep_fraction=0.25))
+    resp = await asyncio.wait_for(eng_to_gw.get(), timeout=2)
+    assert isinstance(resp, CacheRebuildResponse)
+    assert resp.request_id == "c1"
+    assert resp.registered == coord.stats().registered_experts
+    assert resp.gpu_capacity_bytes == 10_000
+    assert resp.phase == coord.phase
