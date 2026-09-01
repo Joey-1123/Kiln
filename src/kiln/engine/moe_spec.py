@@ -10,7 +10,7 @@ real hardware); this module is pure-Python and unit-tested without a GPU.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Callable, Literal, Optional
 
 Routing = Literal["topk", "switch"]
 
@@ -41,12 +41,21 @@ def validate_moe_spec(spec: MoESpec) -> None:
     spec.validate()
 
 
-def build_expert_bank(spec: MoESpec, strategy: str = "offload", gpu_capacity_bytes: int = 8 << 30):
+def build_expert_bank(
+    spec: MoESpec,
+    strategy: str = "offload",
+    gpu_capacity_bytes: int = 8 << 30,
+    mover: Optional[Callable] = None,
+):
     """Build an :class:`ExpertBank` with one registered expert per (layer, expert)."""
     from kiln.engine.expert_bank import Expert, ExpertBank, Strategy
 
     validate_moe_spec(spec)
-    bank = ExpertBank(gpu_capacity_bytes=gpu_capacity_bytes, strategy=Strategy[strategy])
+    bank = ExpertBank(
+        gpu_capacity_bytes=gpu_capacity_bytes,
+        strategy=Strategy[strategy],
+        mover=mover,
+    )
     for layer in range(spec.layers):
         for eid in range(spec.num_experts):
             bank.register(

@@ -59,22 +59,11 @@ class OffloadCoordinator:
         validate_moe_spec(spec)
         self._spec = spec
         self._bank: ExpertBank = build_expert_bank(
-            spec, strategy=strategy.name, gpu_capacity_bytes=gpu_capacity_bytes
+            spec,
+            strategy=strategy.name,
+            gpu_capacity_bytes=gpu_capacity_bytes,
+            mover=mover,
         )
-        if mover is not None:
-            self._bank = ExpertBank(
-                gpu_capacity_bytes=gpu_capacity_bytes,
-                strategy=strategy,
-                mover=mover,
-            )
-            for layer in range(spec.layers):
-                for eid in range(spec.num_experts):
-                    self._bank.register(Expert(
-                        expert_id=f"l{layer}.e{eid}",
-                        size_bytes=spec.expert_dim * 2,
-                        layer=layer,
-                        dims=spec.expert_dim,
-                    ))
         self._strategy = strategy
         self._gpu_capacity = gpu_capacity_bytes
         self._budget = ExpertBudget(total_experts=spec.num_experts * spec.layers)
