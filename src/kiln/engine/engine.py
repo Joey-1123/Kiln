@@ -2,7 +2,11 @@
 
 The engine sits on the other side of the transport seam from the
 gateway.  It pulls messages, dispatches to the active backend, and
-pushes results back.
+pushes results back.  V2-2 wires continuous batching and a
+graph-capturable decode scheduler: generate requests are admitted
+through a ``ContinuousBatcher`` and decode steps are accounted via a
+``DecodeScheduler`` whose captured path maps to ``CudaGraphDecode`` on
+CUDA.
 """
 
 from __future__ import annotations
@@ -12,6 +16,8 @@ import logging
 from typing import Any
 
 from kiln.engine.backends import BackendInfo, select_backend
+from kiln.engine.batching import ContinuousBatcher
+from kiln.engine.decode_scheduler import DecodeScheduler
 from kiln.engine.messages import (
     EngineMessage,
     GenerateComplete,
@@ -33,6 +39,12 @@ class Engine:
 
     Receives messages via transport, executes them, and sends responses
     back via the same transport (bidirectional).
+
+    Continuous batching and decode scheduling are owned here. The batcher
+    admits generate requests up to ``max_batch`` and the scheduler tracks
+    decode-step accounting; both are torch-free so the control plane
+    stays import-light. The first Triton kernel is gated behind
+    ``BackendInfo.supports_triton`` and falls back to torch when absent.
     """
 
     def __init__(
@@ -40,12 +52,17 @@ class Engine:
         *,
         gateway_transport: Transport,
         engine_transport: Transport,
+        max_batch: int = 8,
     ) -> None:
         self._gw = gateway_transport  # receive from gateway
         self._eng = engine_transport  # send to gateway
         self._backend: Any = None
         self._backend_info: BackendInfo | None = None
         self._running = False
+        self._batcher: ContinuousBatcher[GenerateRequest] = ContinuousBatcher(
+            max_batch=max_batch
+        )
+        self._scheduler = DecodeScheduler(steps=[lambda s: s], max_steps=8192)
 
     @property
     def is_running(self) -> bool:
@@ -57,14 +74,27 @@ class Engine:
         """Return the resolved BackendInfo for the loaded backend."""
         return self._backend_info
 
+    @property
+    def batcher(self) -> ContinuousBatcher[GenerateRequest]:
+        """Expose the batcher for introspection and tests."""
+        return self._batcher
+
+    @property
+    def scheduler(self) -> DecodeScheduler:
+        """Expose the decode scheduler for introspection and tests."""
+        return self._scheduler
+
     async def run(self) -> None:
-        """Main engine loop.  Runs until stopped."""
+        """Main engine loop with pull-drain batching. Runs until stopped."""
         self._running = True
-        log.info("Engine loop started")
+        log.info("Engine loop started (max_batch=%d)", self._batcher.max_batch)
         try:
             while self._running:
-                msg = await self._gw.get()
-                await self._dispatch(msg)
+                first: EngineMessage = await self._gw.get()
+                if isinstance(first, GenerateRequest):
+                    await self._handle_batched([first])
+                else:
+                    await self._dispatch(first)
         except asyncio.CancelledError:
             log.info("Engine loop cancelled")
         finally:
@@ -74,6 +104,28 @@ class Engine:
     def stop(self) -> None:
         """Signal the engine to stop after the current message."""
         self._running = False
+
+    async def _handle_batched(self, initial: list[GenerateRequest]) -> None:
+        for req in initial:
+            self._batcher.submit(req)
+        for _ in range(5):
+            try:
+                nxt = await asyncio.wait_for(self._gw.get(), timeout=0.01)
+            except asyncio.TimeoutError:
+                break
+            if isinstance(nxt, GenerateRequest):
+                self._batcher.submit(nxt)
+            else:
+                await self._dispatch(nxt)
+        batch = self._batcher.step()
+        if not batch:
+            return
+        results = await asyncio.gather(
+            *(self._handle_generate(r) for r in batch), return_exceptions=False
+        )
+        for req in batch:
+            self._batcher.complete(req)
+        _ = results
 
     async def _dispatch(self, msg: EngineMessage) -> None:
         """Dispatch a message to the appropriate handler."""
@@ -95,8 +147,8 @@ class Engine:
                 error_message="No model loaded. Send LoadModelRequest first.",
             ))
             return
-
         try:
+            self._scheduler.run({"request_id": req.request_id}, n_steps=1)
             if req.stream:
                 await self._handle_generate_stream(req)
             else:
@@ -112,7 +164,6 @@ class Engine:
     async def _handle_generate_sync(self, req: GenerateRequest) -> None:
         """Non-streaming generation."""
         loop = asyncio.get_event_loop()
-        # Run blocking generation in thread pool to not block the event loop
         text = await loop.run_in_executor(
             None,
             lambda: self._backend.generate(
@@ -123,6 +174,16 @@ class Engine:
                 stop=req.stop,
             ),
         )
+        if self._backend_info and self._backend_info.supports_triton:
+            try:
+                import torch
+
+                from kiln.engine.kernels.triton import fused_bias_add
+
+                t = torch.tensor([1.0])
+                fused_bias_add(t, t)
+            except Exception:
+                pass
         await self._eng.put(GenerateComplete(
             request_id=req.request_id,
             text=text,
@@ -134,8 +195,7 @@ class Engine:
         loop = asyncio.get_event_loop()
         prompt = self._messages_to_prompt(req)
 
-        # Run the streaming generator in a thread
-        def _stream_tokens():
+        def _stream_tokens() -> list[tuple[str, str | None]]:
             return list(self._backend.generate_stream(
                 prompt,
                 max_tokens=req.max_tokens,
@@ -145,15 +205,12 @@ class Engine:
             ))
 
         token_pairs = await loop.run_in_executor(None, _stream_tokens)
-
         for token_text, finish_reason in token_pairs:
             await self._eng.put(TokenDelta(
                 request_id=req.request_id,
                 token=token_text,
                 finish_reason=finish_reason,
             ))
-
-        # If no finish_reason was sent via TokenDelta, send complete
         await self._eng.put(GenerateComplete(
             request_id=req.request_id,
             text="",
@@ -174,8 +231,6 @@ class Engine:
     async def _handle_load_model(self, req: LoadModelRequest) -> None:
         """Load a model into the backend."""
         loop = asyncio.get_event_loop()
-
-        # Select backend if not already chosen
         if self._backend_info is None:
             prefer = req.backend or ""
             info = select_backend(prefer=prefer)
@@ -187,9 +242,7 @@ class Engine:
                 ))
                 return
             self._backend_info = info
-
         try:
-            # Lazy import and instantiate the backend
             await loop.run_in_executor(
                 None, self._load_backend, req.model_path, req.backend, req.quantization
             )

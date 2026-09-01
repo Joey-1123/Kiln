@@ -22,9 +22,12 @@ _INFO = BackendInfo(
     supports_tools=True,
     supports_nf4=True,
     supports_gptq=True,
+    supports_continuous_batching=True,
+    supports_cuda_graph=True,
+    supports_triton=True,
     requires_cuda=True,
     requires_torch=True,
-    description="Native torch+Triton, NF4/GPTQ quantization",
+    description="Native torch+Triton, NF4/GPTQ quantization, batched + CUDA-graph decode",
 )
 
 

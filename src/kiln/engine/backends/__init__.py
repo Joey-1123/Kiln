@@ -26,6 +26,9 @@ class BackendInfo:
     supports_nf4: bool = False
     supports_gptq: bool = False
     supports_gguf: bool = False
+    supports_continuous_batching: bool = False
+    supports_cuda_graph: bool = False
+    supports_triton: bool = False
     requires_cuda: bool = False
     requires_torch: bool = False
     max_model_params: int = 0  # 0 = unlimited

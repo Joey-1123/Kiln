@@ -22,9 +22,12 @@ _INFO = BackendInfo(
     supports_nf4=False,
     supports_gptq=False,
     supports_gguf=True,
+    supports_continuous_batching=True,
+    supports_cuda_graph=False,
+    supports_triton=False,
     requires_cuda=False,
     requires_torch=False,
-    description="llama.cpp via llama-cpp-python, GGUF format",
+    description="llama.cpp via llama-cpp-python, GGUF format, batched (CPU)",
 )
 
 
