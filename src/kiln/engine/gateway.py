@@ -41,7 +41,7 @@ from kiln.engine.metrics import MetricsCollector, summarise
 
 log = logging.getLogger(__name__)
 
-_PendingFut = asyncio.Future[HealthResponse | GenerateComplete | GenerateError]
+_PendingFut = asyncio.Future[HealthResponse | ModelLoaded | GenerateComplete | GenerateError]
 
 # ---------------------------------------------------------------------------
 # Request/Response schemas (OpenAI-compatible)
@@ -655,11 +655,44 @@ async def _get_next_token(
 # ---------------------------------------------------------------------------
 
 
-def route_response(state: Any, msg: TokenDelta | GenerateComplete | GenerateError) -> None:
-    """Route an engine response to the correct per-request queue.
+def _resolve_pending(state: Any, msg: Any) -> None:
+    """Resolve a non-streaming request waiter, if one is waiting.
+
+    The blocking endpoints (``/health``, ``/v1/load``, non-streaming chat)
+    await a future stored in ``state._pending[request_id]``. A terminal
+    engine response must resolve that future so the handler returns instead
+    of hanging until its timeout. If no waiter exists, the message is
+    stream-only and safely ignored here.
+    """
+    fut = getattr(state, "_pending", {}).get(msg.request_id)
+    if fut is not None and not fut.done():
+        fut.set_result(msg)
+        state._pending.pop(msg.request_id, None)
+
+
+def route_response(
+    state: Any, msg: TokenDelta | HealthResponse | ModelLoaded | GenerateComplete | GenerateError
+) -> None:
+    """Route an engine response to the correct request waiter.
 
     Called by the engine when it produces a response.
+
+    Streaming generations drain ``TokenDelta``/terminal from a per-request
+    queue; non-streaming requests (and ``/health``, ``/v1/load``) await a
+    pending future. A terminal message resolves whichever sink is active, so
+    both paths share one routing function (no per-endpoint special casing).
     """
+    if isinstance(msg, TokenDelta):
+        _route_to_queue(state, msg)
+        return
+    # Terminal for streaming: push to the per-request queue too.
+    if isinstance(msg, (GenerateComplete, GenerateError)):
+        _route_to_queue(state, msg)
+    _resolve_pending(state, msg)
+
+
+def _route_to_queue(state: Any, msg: Any) -> None:
+    """Best-effort push to a streaming per-request queue."""
     q = getattr(state, "_response_queues", {}).get(msg.request_id)
     if q is not None:
         try:

@@ -5,7 +5,14 @@ import asyncio
 from httpx import ASGITransport, AsyncClient
 
 from kiln.engine.gateway import _sse_format, create_gateway, route_response
-from kiln.engine.messages import GenerateComplete, GenerateError, QueueTransport
+from kiln.engine.messages import (
+    GenerateComplete,
+    GenerateError,
+    HealthResponse,
+    ModelLoaded,
+    QueueTransport,
+    TokenDelta,
+)
 
 
 async def _get(app, path, **kw):
@@ -100,6 +107,66 @@ class TestRouteResponse:
         state = type("S", (), {"_response_queues": {"r1": q}})()
         # Should not raise — just logs warning
         route_response(state, GenerateComplete(request_id="r1", text="overfill"))
+
+
+class TestPendingResolution:
+    """route_response must resolve the blocking endpoint futures.
+
+    Regression: /health, /v1/load and non-streaming chat awaited a future in
+    state._pending that route_response never set_result, so every such call
+    hung until its timeout even with a live engine.
+    """
+
+    def _state(self, pending: dict | None = None):
+        return type("S", (), {"_response_queues": {}, "_pending": pending or {}})()
+
+    async def test_health_response_resolves(self):
+        fut = asyncio.get_running_loop().create_future()
+        state = self._state({"h1": fut})
+        route_response(state, HealthResponse(request_id="h1", status="ok", backend="cuda"))
+        assert fut.done()
+        assert fut.result().status == "ok"
+        assert "h1" not in state._pending
+
+    async def test_model_loaded_resolves(self):
+        fut = asyncio.get_running_loop().create_future()
+        state = self._state({"l1": fut})
+        route_response(state, ModelLoaded(request_id="l1", model_path="/m", backend="cuda"))
+        assert fut.done()
+        assert fut.result().model_path == "/m"
+        assert "l1" not in state._pending
+
+    async def test_generate_complete_resolves_and_queues(self):
+        fut = asyncio.get_running_loop().create_future()
+        q = asyncio.Queue()
+        state = type("S", (), {"_response_queues": {"g1": q}, "_pending": {"g1": fut}})()
+        route_response(state, GenerateComplete(request_id="g1", text="done"))
+        assert fut.done()
+        assert fut.result().text == "done"
+        assert q.get_nowait().text == "done"
+
+    async def test_generate_error_resolves_and_queues(self):
+        fut = asyncio.get_running_loop().create_future()
+        q = asyncio.Queue()
+        state = type("S", (), {"_response_queues": {"g2": q}, "_pending": {"g2": fut}})()
+        route_response(state, GenerateError(request_id="g2", error_code="e", error_message="m"))
+        assert fut.done()
+        assert fut.result().error_code == "e"
+        assert q.get_nowait().error_code == "e"
+
+    async def test_token_delta_never_resolves_pending(self):
+        fut = asyncio.get_running_loop().create_future()
+        q = asyncio.Queue()
+        state = type("S", (), {"_response_queues": {"s1": q}, "_pending": {"s1": fut}})()
+        route_response(state, TokenDelta(request_id="s1", token="a"))
+        assert not fut.done()
+        assert q.get_nowait().token == "a"
+
+    async def test_unknown_pending_id_noop(self):
+        fut = asyncio.get_running_loop().create_future()
+        state = self._state({"real": fut})
+        route_response(state, HealthResponse(request_id="other", status="ok"))
+        assert not fut.done()
 
 
 class TestGrammarPassthrough:
