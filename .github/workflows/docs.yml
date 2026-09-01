@@ -31,11 +31,6 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - name: Create venv
-        run: |
-          uv venv .venv
-          echo "VIRTUAL_ENV=$(pwd)/.venv" >> "$GITHUB_ENV"
-          echo "$(pwd)/.venv/bin" >> "$GITHUB_PATH"
       - run: uv pip install -e ".[docs]"
       - run: mkdocs build --strict --site-dir site
 
