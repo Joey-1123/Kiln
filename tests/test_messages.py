@@ -5,6 +5,8 @@ import asyncio
 import pytest
 
 from kiln.engine.messages import (
+    CacheRebuildRequest,
+    CacheRebuildResponse,
     ChatMessage,
     GenerateComplete,
     GenerateError,
@@ -108,6 +110,30 @@ class TestSerialize:
         restored = deserialize(data)
         assert isinstance(restored, ModelLoaded)
         assert restored.backend == "cuda"
+
+    def test_roundtrip_cache_rebuild(self):
+        """CacheRebuildRequest and CacheRebuildResponse should survive roundtrip."""
+        req = CacheRebuildRequest(request_id="c1", keep_fraction=0.25)
+        data = serialize(req)
+        restored = deserialize(data)
+        assert isinstance(restored, CacheRebuildRequest)
+        assert restored.keep_fraction == 0.25
+
+        resp = CacheRebuildResponse(
+            request_id="c1",
+            evicted=3,
+            resident=9,
+            registered=12,
+            gpu_used_bytes=1 << 30,
+            gpu_capacity_bytes=8 << 30,
+            phase="decode",
+        )
+        data = serialize(resp)
+        restored = deserialize(data)
+        assert isinstance(restored, CacheRebuildResponse)
+        assert restored.evicted == 3
+        assert restored.resident == 9
+        assert restored.gpu_used_bytes == 1 << 30
 
 
 class TestDeserialize:

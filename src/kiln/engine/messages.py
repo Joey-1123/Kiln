@@ -129,6 +129,33 @@ class ModelLoaded:
     backend: str = ""
 
 
+@dataclass(frozen=True)
+class CacheRebuildRequest:
+    """Gateway → Engine: rebalance resident cache/expert memory.
+
+    ``keep_fraction`` is the fraction of capacity to keep resident after the
+    rebalance (elastic VRAM). The engine evicts coldest entries first.
+    """
+
+    __type__: str = field(default="CacheRebuildRequest", init=False)
+    request_id: str = ""
+    keep_fraction: float = 0.5
+
+
+@dataclass(frozen=True)
+class CacheRebuildResponse:
+    """Engine → Gateway: outcome of a cache rebalance."""
+
+    __type__: str = field(default="CacheRebuildResponse", init=False)
+    request_id: str = ""
+    evicted: int = 0
+    resident: int = 0
+    registered: int = 0
+    gpu_used_bytes: int = 0
+    gpu_capacity_bytes: int = 0
+    phase: str = ""
+
+
 # Union of all message types
 EngineMessage = (
     GenerateRequest
@@ -139,6 +166,8 @@ EngineMessage = (
     | HealthResponse
     | LoadModelRequest
     | ModelLoaded
+    | CacheRebuildRequest
+    | CacheRebuildResponse
 )
 
 # Registry for deserialisation
@@ -153,6 +182,8 @@ _MSG_TYPES: dict[str, type] = {
         HealthResponse,
         LoadModelRequest,
         ModelLoaded,
+        CacheRebuildRequest,
+        CacheRebuildResponse,
     ]
 }
 
