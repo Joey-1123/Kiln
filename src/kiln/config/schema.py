@@ -134,6 +134,43 @@ class EvalPolicyConfig(BaseModel):
     ship: ShipGatePolicy = Field(default_factory=ShipGatePolicy)
 
 
+class PlanPolicyConfig(BaseModel):
+    """Training-fit feasibility policy (top-level `plan:`). Excluded from
+    config_sha, like ``eval:`` — tuning verdict thresholds never touches
+    model weights, so it must not invalidate prior evidence.
+
+    Thresholds are fractions of available VRAM used to classify whether a
+    QLoRA training run is recommended.  The defaults are conservative: the
+    estimator already folds in a 10% safety margin, so ``Recommended``
+    (≤ 90% of capacity) means genuine headroom, not
+    ``estimated == physical_capacity``.  Keep these configurable so future
+    empirical measurements can tune policy without rewriting the estimator.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    recommended_fraction: float = Field(
+        0.90,
+        gt=0.0,
+        le=1.0,
+        description="estimated/available ratio at or below which the run is "
+        "Recommended (genuine headroom, given the estimator's own margin)",
+    )
+    possible_fraction: float = Field(
+        1.0,
+        gt=0.0,
+        description="ratio above which the run is Likely OOM; between "
+        "recommended_fraction and possible_fraction it is Possible with "
+        "constrained settings (reduced batch/seq and/or layer streaming)",
+    )
+    minimum_vram_bytes: int = Field(
+        0,
+        ge=0,
+        description="hardware floor below which no GPU is Unsupported "
+        "regardless of the ratio",
+    )
+
+
 class KilnConfig(BaseModel):
     """Root config schema. Single source of truth for every kiln.yaml field."""
 
@@ -141,6 +178,7 @@ class KilnConfig(BaseModel):
 
     recipe: RecipeConfig
     eval: EvalPolicyConfig = Field(default_factory=EvalPolicyConfig)
+    plan: PlanPolicyConfig = Field(default_factory=PlanPolicyConfig)
 
 
 def load_config(path: str | Path) -> KilnConfig:
