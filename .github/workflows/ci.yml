@@ -20,7 +20,12 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install
-        run: uv pip install -e ".[dev]"
+        # The full fast suite imports kiln.engine / .gateway / .transport, which
+        # need the serve (fastapi, pyzmq) and train (numpy via torch) extras at
+        # collection time. Dev-only install fails import collection with
+        # ModuleNotFoundError. The startup-light-probe job separately guards
+        # against top-level heavy-dep leakage.
+        run: uv pip install -e ".[dev,serve,train]"
       - name: Lint
         run: ruff check src/kiln/ tests/
       - name: Test (fast suite)
