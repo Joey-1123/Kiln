@@ -10,7 +10,7 @@ import asyncio
 import os
 import time
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Callable, Optional
 
 import typer
 from rich.console import Console
@@ -422,9 +422,33 @@ def serve(
     from kiln.engine.engine import Engine
     from kiln.engine.gateway import create_gateway
     from kiln.engine.messages import QueueTransport
+    from kiln.engine.metrics import MemoryBars
     from kiln.quant import VALID_NAMES
     from kiln.quant.apply import build_quant_spec
     from kiln.utils.errors import KilnError
+
+    def _offload_bars(eng: Engine) -> Callable[[], MemoryBars]:
+        """Provide live memory bars from the engine's offload coordinator.
+
+        Returns zeros while no MoE coordinator exists (non-MoE models or before
+        ``load``), and adapts ``OffloadCoordinator.stats()`` once one is live —
+        the gateway dashboard reads these instead of shelling out to nvidia-smi.
+        """
+
+        def _snapshot() -> MemoryBars:
+            coord = eng.offload
+            if coord is None:
+                return MemoryBars()
+            stats = coord.stats()
+            return MemoryBars(
+                gpu_used_bytes=stats.gpu_used_bytes,
+                gpu_capacity_bytes=stats.gpu_capacity_bytes,
+                resident_experts=stats.resident_experts,
+                registered_experts=stats.registered_experts,
+                phase=stats.phase,
+            )
+
+        return _snapshot
 
     if quant not in VALID_NAMES:
         opts = ", ".join(sorted(VALID_NAMES))
@@ -528,6 +552,7 @@ def serve(
             model_name=model_name,
             api_token=api_token,
             response_transport=link.gateway_from_engine,
+            offload_stats=_offload_bars(engine),
         )
     else:
         engine_out = QueueTransport()  # engine → gateway
@@ -539,6 +564,7 @@ def serve(
             model_name=model_name,
             api_token=api_token,
             response_transport=engine_out,
+            offload_stats=_offload_bars(engine),
         )
 
     console.print(f"[green]Kiln server starting on {host}:{port}[/green]")

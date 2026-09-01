@@ -18,6 +18,7 @@ from kiln.engine.messages import (
     QueueTransport,
     TokenDelta,
 )
+from kiln.engine.metrics import MemoryBars
 
 
 async def _get(app, path, **kw):
@@ -50,6 +51,28 @@ class TestMetricsEndpoint:
         r = await _get(app, "/v1/metrics")
         assert r.status_code == 200
         assert r.json()["requests"] == 0.0
+
+    async def test_offload_stats_feed_memory_bars(self):
+        t = QueueTransport(maxsize=4)
+
+        def provider() -> MemoryBars:
+            return MemoryBars(
+                gpu_used_bytes=5 << 30,
+                gpu_capacity_bytes=8 << 30,
+                resident_experts=6,
+                registered_experts=12,
+                phase="decode",
+            )
+
+        app = create_gateway(transport=t, model_name="m", offload_stats=provider)
+        r = await _get(app, "/v1/metrics")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["gpu_used_bytes"] == float(5 << 30)
+        assert body["gpu_capacity_bytes"] == float(8 << 30)
+        assert body["resident_experts"] == 6.0
+        assert body["registered_experts"] == 12.0
+        assert body["phase"] == "decode"
 
 
 class TestAuthMiddleware:

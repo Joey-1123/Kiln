@@ -1,6 +1,7 @@
 """Tests for serving metrics (V2)."""
 
-from kiln.engine.metrics import MetricsCollector, summarise
+from kiln.engine.metrics import MemoryBars, MetricsCollector, summarise
+from kiln.engine.offload import OffloadStats
 
 
 def _make() -> tuple[MetricsCollector, list[float], list[float]]:
@@ -27,3 +28,52 @@ def test_ttft_and_tps():
 
 def test_summarise_empty():
     assert summarise([])["requests"] == 0.0
+
+
+def test_summarise_without_memory_keeps_stable_shape():
+    out = summarise([])
+    for key in (
+        "gpu_used_bytes",
+        "gpu_capacity_bytes",
+        "resident_experts",
+        "registered_experts",
+        "phase",
+    ):
+        assert key in out
+    assert out["gpu_used_bytes"] == 0.0
+    assert out["phase"] == ""
+
+
+def test_summarise_includes_memory_bars():
+    mem = MemoryBars(
+        gpu_used_bytes=5 << 30,
+        gpu_capacity_bytes=8 << 30,
+        resident_experts=6,
+        registered_experts=12,
+        phase="decode",
+    )
+    out = summarise([], memory=mem)
+    assert out["gpu_used_bytes"] == float(5 << 30)
+    assert out["gpu_capacity_bytes"] == float(8 << 30)
+    assert out["resident_experts"] == 6.0
+    assert out["registered_experts"] == 12.0
+    assert out["phase"] == "decode"
+
+
+def test_memory_bars_from_offload_stats():
+    stats = OffloadStats(
+        gpu_used_bytes=4 << 30,
+        gpu_capacity_bytes=8 << 30,
+        resident_experts=3,
+        registered_experts=16,
+        phase="prefill",
+    )
+    bars = MemoryBars(
+        gpu_used_bytes=stats.gpu_used_bytes,
+        gpu_capacity_bytes=stats.gpu_capacity_bytes,
+        resident_experts=stats.resident_experts,
+        registered_experts=stats.registered_experts,
+        phase=stats.phase,
+    )
+    assert bars.resident_experts == 3
+    assert bars.phase == "prefill"

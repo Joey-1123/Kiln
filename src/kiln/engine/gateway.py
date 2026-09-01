@@ -18,7 +18,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -39,7 +39,7 @@ from kiln.engine.messages import (
     ToolDefinition,
     Transport,
 )
-from kiln.engine.metrics import MetricsCollector, summarise
+from kiln.engine.metrics import MemoryBars, MetricsCollector, summarise
 
 log = logging.getLogger(__name__)
 
@@ -184,6 +184,7 @@ def create_gateway(
     model_name: str = "default",
     api_token: str | None = None,
     response_transport: Transport | None = None,
+    offload_stats: Callable[[], MemoryBars] | None = None,
 ) -> FastAPI:
     """Create the FastAPI gateway app.
 
@@ -198,6 +199,10 @@ def create_gateway(
         Default model name to expose in /v1/models.
     api_token : str | None
         If set, require this token in X-API-Token header.
+    offload_stats : Callable[[], MemoryBars] | None
+        Optional provider of live memory bars (wired to the engine's
+        ``OffloadCoordinator.stats()``). Used by the /v1/metrics endpoint.
+        When absent the memory fields report zeros.
     """
     app = FastAPI(
         title="Kiln",
@@ -213,6 +218,7 @@ def create_gateway(
     app.state._pending: dict[str, _PendingFut] = {}
     app.state._response_transport = response_transport or transport
     app.state.metrics = MetricsCollector()
+    app.state.offload_stats = offload_stats or (lambda: MemoryBars())
 
     # -----------------------------------------------------------------------
     # Auth middleware
@@ -260,8 +266,8 @@ def create_gateway(
 
     @app.get("/v1/metrics")
     async def metrics() -> dict[str, Any]:
-        """Serving metrics summary (TTFT / tok-s) for the dashboard."""
-        return summarise(app.state.metrics.snapshot())
+        """Serving metrics summary (TTFT / tok-s / memory bars) for the dashboard."""
+        return summarise(app.state.metrics.snapshot(), memory=app.state.offload_stats())
 
     @app.get("/v1/models")
     async def list_models() -> OpenAIModelList:
