@@ -48,8 +48,9 @@ jobs:
   parity-oracle:
     name: parity oracle (CPU↔GPU)
     runs-on: ubuntu-latest  # TODO: replace with a self-hosted GPU label in repo settings
+    # Heavy GPU-oriented setup (pinned torch + source-built llama.cpp), so do
+    # NOT run on every push — only on manual dispatch or PRs labeled 'parity'.
     if: >-
-      github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       contains(github.event.pull_request.labels.*.name, 'parity')
     steps:

@@ -13,6 +13,11 @@ on:
       - "docs/**"
       - "mkdocs.yml"
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy site to GitHub Pages (requires Pages enabled + supported plan)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,13 +40,20 @@ jobs:
       - run: mkdocs build --strict --site-dir site
 
       - name: Upload artifact
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+        # Only produce the deploy artifact when a deploy is actually requested;
+        # otherwise the mkdocs build above is a pure doc lint (green on every push).
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
   deploy:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    # Only deploy when explicitly requested via manual dispatch.
+    # The current repo plan does not support GitHub Pages for a private repo,
+    # so an automatic deploy on push always fails with 422. Gating it behind
+    # the dispatch input keeps the push path green; re-run with `deploy: true`
+    # once Pages is enabled and the plan supports it.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy }}
     needs: build
     runs-on: ubuntu-latest
     environment:
