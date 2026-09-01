@@ -29,6 +29,7 @@ class BackendInfo:
     supports_continuous_batching: bool = False
     supports_cuda_graph: bool = False
     supports_triton: bool = False
+    supports_offload: bool = False
     requires_cuda: bool = False
     requires_torch: bool = False
     max_model_params: int = 0  # 0 = unlimited

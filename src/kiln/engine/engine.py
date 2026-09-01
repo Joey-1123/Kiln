@@ -30,6 +30,7 @@ from kiln.engine.messages import (
     TokenDelta,
     Transport,
 )
+from kiln.engine.moe_spec import MoESpec
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ class Engine:
             max_batch=max_batch
         )
         self._scheduler = DecodeScheduler(steps=[lambda s: s], max_steps=8192)
+        self._offload: Any = None
 
     @property
     def is_running(self) -> bool:
@@ -83,6 +85,28 @@ class Engine:
     def scheduler(self) -> DecodeScheduler:
         """Expose the decode scheduler for introspection and tests."""
         return self._scheduler
+
+    @property
+    def offload(self) -> Any:
+        """Offload coordinator when an MoE model is loaded, else None."""
+        return self._offload
+
+    def init_offload(
+        self,
+        spec: MoESpec,
+        gpu_capacity_bytes: int = 8 << 30,
+        strategy: str = "offload",
+    ) -> Any:
+        """Create an offload coordinator for an MoE spec. Validated, pure-Python."""
+        from kiln.engine.expert_bank import Strategy
+        from kiln.engine.offload import OffloadCoordinator
+
+        strat = Strategy[strategy]
+        coord = OffloadCoordinator(
+            spec=spec, gpu_capacity_bytes=gpu_capacity_bytes, strategy=strat
+        )
+        self._offload = coord
+        return coord
 
     async def run(self) -> None:
         """Main engine loop with pull-drain batching. Runs until stopped."""
@@ -149,6 +173,8 @@ class Engine:
             return
         try:
             self._scheduler.run({"request_id": req.request_id}, n_steps=1)
+            if self._offload is not None:
+                self._offload.begin_decode()
             if req.stream:
                 await self._handle_generate_stream(req)
             else:
@@ -160,6 +186,12 @@ class Engine:
                 error_code="internal_error",
                 error_message=str(exc),
             ))
+        finally:
+            if self._offload is not None:
+                try:
+                    self._offload.end_phase()
+                except Exception:
+                    pass
 
     async def _handle_generate_sync(self, req: GenerateRequest) -> None:
         """Non-streaming generation."""
