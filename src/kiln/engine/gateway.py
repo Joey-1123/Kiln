@@ -41,7 +41,6 @@ from kiln.engine.metrics import MetricsCollector, summarise
 
 log = logging.getLogger(__name__)
 
-# ponytail: type alias to keep lines under 100
 _PendingFut = asyncio.Future[HealthResponse | GenerateComplete | GenerateError]
 
 # ---------------------------------------------------------------------------

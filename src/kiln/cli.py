@@ -149,8 +149,8 @@ def login_cmd(
     if not token.strip():
         console.print("[red]Empty token; nothing saved.[/red]")
         raise typer.Exit(exitcodes.USAGE)
-        path = save_token(token)
-        console.print(f"[green]Token saved to[/green] {path}")
+    path = save_token(token)
+    console.print(f"[green]Token saved to[/green] {path}")
 
 
 @app.command()
@@ -435,12 +435,49 @@ def serve(
         except Exception as exc:
             console.print(f"[yellow]Warning: could not load config: {exc}[/yellow]")
 
-    # If supervisor mode, start engine as a separate process
     if supervisor:
-        from kiln.engine.supervisor import run_supervisor
-        console.print("[dim]Starting in supervisor mode...[/dim]")
-        engine_cmd = [sys.executable, "-m", "kiln.engine.engine"]
-        run_supervisor(engine_cmd)
+        from kiln.engine.supervisor import Supervisor, SupervisorConfig
+        from kiln.engine.transport_zmq import ZmqLink
+
+        console.print(
+            "[dim]Starting in supervisor mode (gateway in parent, engine child via ZMQ)...[/dim]"
+        )
+        link = ZmqLink(host=host)
+        port_a = link._port_a()  # noqa: SLF001
+        port_b = link._port_b()  # noqa: SLF001
+        engine_cmd = [
+            sys.executable, "-m", "kiln.engine",
+            "--host", host,
+            "--port-a", str(port_a),
+            "--port-b", str(port_b),
+        ]
+        gateway_app = create_gateway(
+            transport=link.gateway_to_engine,
+            model_name=model_name,
+            api_token=api_token,
+            response_transport=link.gateway_from_engine,
+        )
+        supervisor_cfg = SupervisorConfig(engine_cmd=engine_cmd)
+        supervisor_obj = Supervisor(supervisor_cfg)
+        config_uvicorn_sup = uvicorn.Config(
+            gateway_app, host=host, port=port, log_level="info",
+        )
+        server_sup = uvicorn.Server(config_uvicorn_sup)
+
+        async def _run_supervised() -> None:
+            sup_task = asyncio.create_task(supervisor_obj.run())
+            try:
+                await server_sup.serve()
+            finally:
+                supervisor_obj.stop()
+                sup_task.cancel()
+                try:
+                    await sup_task
+                except asyncio.CancelledError:
+                    pass
+                await link.aclose()
+
+        asyncio.run(_run_supervised())
         return
 
     # Single-process mode: gateway + engine fused (A1 amendment). The transport
@@ -466,10 +503,8 @@ def serve(
         gw_out = QueueTransport()  # gateway → engine
 
         engine = Engine(gateway_transport=gw_out, engine_transport=engine_out)
-        gw_transport = QueueTransport()  # gateway HTTP → engine
-
         app = create_gateway(
-            transport=gw_transport,
+            transport=gw_out,
             model_name=model_name,
             api_token=api_token,
             response_transport=engine_out,

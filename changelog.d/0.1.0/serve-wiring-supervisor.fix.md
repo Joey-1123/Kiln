@@ -1,0 +1,1 @@
+Fix fused `queue` transport wiring in `kiln serve` where gateway and engine used disjoint `QueueTransport` instances so requests never reached the engine, and add the `python -m kiln.engine` subprocess entry point with parent-gateway / child-engine ZMQ topology for `--supervisor` (READY/ACK pipe, crash isolation). Update architecture and CLI docs accordingly.

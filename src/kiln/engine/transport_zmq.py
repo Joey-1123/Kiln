@@ -121,12 +121,10 @@ class ZmqLink:
         a = f"tcp://{host}:{port_a}"
         b = f"tcp://{host}:{port_b}"
         self._ctx = ctx or _new_ctx()
-        # gateway → engine : gateway connects, engine binds
-        self.gateway_to_engine: ZmqTransport = ZmqTransport(a, bind=False, ctx=self._ctx)
-        self.engine_from_gateway: ZmqTransport = ZmqTransport(a, bind=True, ctx=self._ctx)
-        # engine → gateway : engine connects, gateway binds
-        self.engine_to_gateway: ZmqTransport = ZmqTransport(b, bind=False, ctx=self._ctx)
+        self.gateway_to_engine: ZmqTransport = ZmqTransport(a, bind=True, ctx=self._ctx)
+        self.engine_from_gateway: ZmqTransport = ZmqTransport(a, bind=False, ctx=self._ctx)
         self.gateway_from_engine: ZmqTransport = ZmqTransport(b, bind=True, ctx=self._ctx)
+        self.engine_to_gateway: ZmqTransport = ZmqTransport(b, bind=False, ctx=self._ctx)
 
     @classmethod
     def connect_to(

@@ -1,0 +1,62 @@
+site_name: Kiln
+site_description: Fine-tune, serve, and chat with open models on consumer hardware — one tool, one config.
+site_url: https://kiln-ai.github.io/kiln/
+repo_url: https://github.com/kiln-ai/kiln
+repo_name: kiln-ai/kiln
+edit_uri: edit/master/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: deep orange
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep orange
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - toc:
+      permalink: true
+  - attr_list
+  - def_list
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+  - CLI Reference: cli/index.md
+  - Configuration: config/index.md
+  - Architecture: architecture/index.md
+  - Development:
+      - Contributing: development/contributing.md
+      - Benchmarks: development/benchmarks.md
+
+plugins:
+  - search
