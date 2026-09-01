@@ -6,6 +6,8 @@ from httpx import ASGITransport, AsyncClient
 
 from kiln.engine.gateway import _sse_format, create_gateway, route_response
 from kiln.engine.messages import (
+    CacheRebuildRequest,
+    CacheRebuildResponse,
     GenerateComplete,
     GenerateError,
     GenerateRequest,
@@ -330,3 +332,69 @@ class TestRoundTrip:
         finally:
             task.cancel()
             listener.cancel()
+
+    async def test_cache_rebuild_round_trip(self):
+        req_t = QueueTransport(maxsize=4)
+        resp_t = QueueTransport(maxsize=4)
+        app = create_gateway(transport=req_t, response_transport=resp_t, model_name="m")
+        captured = asyncio.Queue()
+
+        async def engine() -> None:
+            while True:
+                msg = await req_t.get()
+                if isinstance(msg, CacheRebuildRequest):
+                    await captured.put(msg)
+                    await resp_t.put(
+                        CacheRebuildResponse(
+                            request_id=msg.request_id,
+                            evicted=3,
+                            resident=6,
+                            registered=12,
+                            gpu_used_bytes=5 << 30,
+                            gpu_capacity_bytes=8 << 30,
+                            phase="decode",
+                        )
+                    )
+
+        task = asyncio.create_task(engine())
+        from kiln.engine.gateway import _response_loop
+
+        listener = asyncio.create_task(_response_loop(resp_t, app.state))
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+                r = await asyncio.wait_for(
+                    c.post("/v1/cache/rebuild", json={"keep_fraction": 0.5}),
+                    timeout=10,
+                )
+            req = await asyncio.wait_for(captured.get(), timeout=2)
+            assert isinstance(req, CacheRebuildRequest)
+            assert req.keep_fraction == 0.5
+            assert r.status_code == 200
+            body = r.json()
+            assert body["status"] == "rebalanced"
+            assert body["evicted"] == 3
+            assert body["resident"] == 6
+            assert body["gpu_used_bytes"] == 5 << 30
+            assert body["gpu_capacity_bytes"] == 8 << 30
+        finally:
+            task.cancel()
+            listener.cancel()
+
+    async def test_cache_rebuild_rejects_bad_fraction(self):
+        req_t = QueueTransport(maxsize=4)
+        resp_t = QueueTransport(maxsize=4)
+        app = create_gateway(transport=req_t, response_transport=resp_t, model_name="m")
+
+        async def engine() -> None:
+            # Never reply: validation must reject before any request is sent.
+            await asyncio.sleep(0)
+
+        task = asyncio.create_task(engine())
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+                for bad in (1.5, -0.1, "x"):
+                    r = await c.post("/v1/cache/rebuild", json={"keep_fraction": bad})
+                    assert r.status_code == 400
+                    assert "invalid_keep_fraction" in r.text
+        finally:
+            task.cancel()

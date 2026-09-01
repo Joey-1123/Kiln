@@ -25,6 +25,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from kiln.engine.messages import (
+    CacheRebuildRequest,
+    CacheRebuildResponse,
     ChatMessage,
     GenerateComplete,
     GenerateError,
@@ -41,7 +43,9 @@ from kiln.engine.metrics import MetricsCollector, summarise
 
 log = logging.getLogger(__name__)
 
-_PendingFut = asyncio.Future[HealthResponse | ModelLoaded | GenerateComplete | GenerateError]
+_PendingFut = asyncio.Future[
+    HealthResponse | ModelLoaded | CacheRebuildResponse | GenerateComplete | GenerateError
+]
 
 # ---------------------------------------------------------------------------
 # Request/Response schemas (OpenAI-compatible)
@@ -313,6 +317,59 @@ def create_gateway(
             }
         except asyncio.TimeoutError:
             detail = {"error": {"code": "timeout", "message": "Model load timed out"}}
+            raise HTTPException(status_code=504, detail=detail)
+        finally:
+            app.state._pending.pop(req_id, None)
+
+    # -----------------------------------------------------------------------
+    # Cache / elastic VRAM rebalance
+    # -----------------------------------------------------------------------
+
+    @app.post("/v1/cache/rebuild")
+    async def cache_rebuild(body: dict[str, Any]) -> dict[str, Any]:
+        """Rebalance resident cache/expert memory; returns updated usage bars.
+
+        ``keep_fraction`` is the fraction of capacity to keep resident after
+        the rebalance (default 0.5). Must be in [0, 1].
+        """
+        keep_fraction = body.get("keep_fraction", 0.5)
+        if not isinstance(keep_fraction, (int, float)) or isinstance(keep_fraction, bool):
+            raise HTTPException(
+                status_code=400,
+                detail={"error": {"code": "invalid_keep_fraction", "message": "must be a number"}},
+            )
+        if not 0.0 <= float(keep_fraction) <= 1.0:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": {"code": "invalid_keep_fraction", "message": "must be in [0, 1]"}},
+            )
+        req_id = str(uuid.uuid4())
+        fut: asyncio.Future[CacheRebuildResponse | GenerateError] = (
+            asyncio.get_event_loop().create_future()
+        )
+        app.state._pending[req_id] = fut
+        try:
+            await transport.put(CacheRebuildRequest(
+                request_id=req_id,
+                keep_fraction=float(keep_fraction),
+            ))
+            resp = await asyncio.wait_for(fut, timeout=300.0)
+            if isinstance(resp, GenerateError):
+                detail = {
+                    "error": {"code": resp.error_code, "message": resp.error_message}
+                }
+                raise HTTPException(status_code=500, detail=detail)
+            return {
+                "status": "rebalanced",
+                "evicted": resp.evicted,
+                "resident": resp.resident,
+                "registered": resp.registered,
+                "gpu_used_bytes": resp.gpu_used_bytes,
+                "gpu_capacity_bytes": resp.gpu_capacity_bytes,
+                "phase": resp.phase,
+            }
+        except asyncio.TimeoutError:
+            detail = {"error": {"code": "timeout", "message": "Cache rebuild timed out"}}
             raise HTTPException(status_code=504, detail=detail)
         finally:
             app.state._pending.pop(req_id, None)
@@ -671,22 +728,31 @@ def _resolve_pending(state: Any, msg: Any) -> None:
 
 
 def route_response(
-    state: Any, msg: TokenDelta | HealthResponse | ModelLoaded | GenerateComplete | GenerateError
+    state: Any,
+    msg: (
+        TokenDelta
+        | HealthResponse
+        | ModelLoaded
+        | CacheRebuildResponse
+        | GenerateComplete
+        | GenerateError
+    ),
 ) -> None:
     """Route an engine response to the correct request waiter.
 
     Called by the engine when it produces a response.
 
     Streaming generations drain ``TokenDelta``/terminal from a per-request
-    queue; non-streaming requests (and ``/health``, ``/v1/load``) await a
-    pending future. A terminal message resolves whichever sink is active, so
-    both paths share one routing function (no per-endpoint special casing).
+    queue; non-streaming requests (``/health``, ``/v1/load``,
+    ``/v1/cache/rebuild``) await a pending future. A terminal message
+    resolves whichever sink is active, so both paths share one routing
+    function (no per-endpoint special casing).
     """
     if isinstance(msg, TokenDelta):
         _route_to_queue(state, msg)
         return
     # Terminal for streaming: push to the per-request queue too.
-    if isinstance(msg, (GenerateComplete, GenerateError)):
+    if isinstance(msg, (GenerateComplete, GenerateError, CacheRebuildResponse)):
         _route_to_queue(state, msg)
     _resolve_pending(state, msg)
 
