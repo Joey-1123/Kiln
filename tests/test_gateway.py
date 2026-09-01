@@ -8,7 +8,10 @@ from kiln.engine.gateway import _sse_format, create_gateway, route_response
 from kiln.engine.messages import (
     GenerateComplete,
     GenerateError,
+    GenerateRequest,
+    HealthCheck,
     HealthResponse,
+    LoadModelRequest,
     ModelLoaded,
     QueueTransport,
     TokenDelta,
@@ -196,3 +199,134 @@ class TestGrammarPassthrough:
         assert isinstance(req, GenerateRequest)
         assert req.grammar == "[a-z]+"
         task.cancel()
+
+
+class TestRoundTrip:
+    """End-to-end gateway ⇄ engine round trips over the transport seam.
+
+    Regression: blocking endpoints (/health, /v1/load) awaited a pending
+    future that route_response never resolved, so they hung until timeout
+    even when a live engine replied. These tests drive a real request out to
+    a responding engine side and assert the gateway resolves normally.
+    """
+
+    async def _run(self, request_transport, response_transport, handler, **client_kw):
+        app = create_gateway(
+            transport=request_transport,
+            response_transport=response_transport,
+            model_name="m",
+        )
+        stopped = asyncio.Event()
+
+        async def engine() -> None:
+            # Reads gateway → engine requests and replies on the opposite
+            # transport, imitating Engine.run().
+            while True:
+                msg = await request_transport.get()
+                resp = await handler(msg)
+                if resp is not None:
+                    await response_transport.put(resp)
+
+        task = asyncio.create_task(engine())
+        # ASGITransport does not fire FastAPI's on_event("startup"), so start
+        # the engine→gateway response bridge explicitly (as cli.serve does for
+        # the real uvicorn runtime).
+        from kiln.engine.gateway import _response_loop
+
+        listener = asyncio.create_task(_response_loop(response_transport, app.state))
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://t", **client_kw
+            ) as c:
+                yield c, app
+        finally:
+            task.cancel()
+            listener.cancel()
+            stopped.set()
+
+    async def test_health_round_trip(self):
+        async def _go():
+            async def handler(msg):
+                if isinstance(msg, HealthCheck):
+                    return HealthResponse(
+                        request_id=msg.request_id,
+                        status="ok",
+                        model_loaded=True,
+                        backend="cuda",
+                    )
+                return None
+
+            gen = self._run(QueueTransport(maxsize=4), QueueTransport(maxsize=4), handler)
+            async for client, app in gen:
+                r = await client.get("/health")
+                assert r.status_code == 200
+                body = r.json()
+                assert body["status"] == "ok"
+                assert body["model_loaded"] is True
+                assert body["backend"] == "cuda"
+                return r
+
+        r = await asyncio.wait_for(_go(), timeout=10)
+        assert r is not None
+
+    async def test_load_round_trip(self):
+        async def _go():
+            async def handler(msg):
+                if isinstance(msg, LoadModelRequest):
+                    return ModelLoaded(
+                        request_id=msg.request_id,
+                        model_path=msg.model_path,
+                        backend="cuda",
+                    )
+                return None
+
+            gen = self._run(QueueTransport(maxsize=4), QueueTransport(maxsize=4), handler)
+            async for client, app in gen:
+                r = await client.post(
+                    "/v1/load",
+                    json={"model_path": "/tmp/m", "quantization": "none"},
+                )
+                assert r.status_code == 200
+                body = r.json()
+                assert body["status"] == "loaded"
+                assert body["backend"] == "cuda"
+                return r
+
+        r = await asyncio.wait_for(_go(), timeout=10)
+        assert r is not None
+
+    async def test_streaming_unaffected_by_health_routing(self):
+        # A TokenDelta for a streaming request must never resolve an unrelated
+        # pending waiter, and a non-streaming chat waiter still resolves.
+        req_t = QueueTransport(maxsize=4)
+        resp_t = QueueTransport(maxsize=4)
+        app = create_gateway(transport=req_t, response_transport=resp_t, model_name="m")
+
+        async def engine() -> None:
+            while True:
+                msg = await req_t.get()
+                if isinstance(msg, GenerateRequest):
+                    await resp_t.put(
+                        GenerateComplete(
+                            request_id=msg.request_id, text="hi there", finish_reason="stop"
+                        )
+                    )
+
+        task = asyncio.create_task(engine())
+        from kiln.engine.gateway import _response_loop
+
+        listener = asyncio.create_task(_response_loop(resp_t, app.state))
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+                r = await asyncio.wait_for(
+                    c.post(
+                        "/v1/chat/completions",
+                        json={"messages": [{"role": "user", "content": "say hi"}], "stream": False},
+                    ),
+                    timeout=10,
+                )
+                assert r.status_code == 200
+                assert "hi there" in r.text
+        finally:
+            task.cancel()
+            listener.cancel()
