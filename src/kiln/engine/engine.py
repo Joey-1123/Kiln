@@ -265,7 +265,15 @@ class Engine:
         loop = asyncio.get_event_loop()
         if self._backend_info is None:
             prefer = req.backend or ""
-            info = select_backend(prefer=prefer)
+            quant = req.quantization or "none"
+            kwargs: dict[str, bool | str] = {}
+            if quant == "gptq":
+                kwargs["require_gptq"] = True
+            elif quant in ("4bit", "8bit"):
+                kwargs["require_nf4"] = True
+            elif quant == "awq":
+                kwargs["require_gguf"] = True
+            info = select_backend(prefer=prefer, **kwargs)  # type: ignore[arg-type]
             if info is None:
                 await self._eng.put(GenerateError(
                     request_id=req.request_id,

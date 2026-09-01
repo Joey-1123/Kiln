@@ -72,6 +72,44 @@ class CUDABackend:
         spec = build_quant_spec(quantization)
         log.info("Loading CUDA model: %s (quantization=%s)", model_path, quantization)
 
+        if spec.name in ("gptq", "awq"):
+            from kiln.quant import validate_artifact
+
+            validate_artifact(model_path, spec.name)
+
+        if spec.name == "gptq":
+            try:
+                from auto_gptq import AutoGPTQForCausalLM
+
+                model = AutoGPTQForCausalLM.from_pretrained(model_path, device_map="auto")
+                tokenizer = AutoTokenizer.from_pretrained(model_path)
+                if tokenizer.pad_token is None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                self._model = model
+                self._tokenizer = tokenizer
+                self._model_path = model_path
+                log.info("Model loaded: %s", model_path)
+                return
+            except ImportError as exc:
+                raise RuntimeError(
+                    "GPTQ artifact requires auto-gptq: pip install \"kiln-cli[quant]\""
+                ) from exc
+        if spec.name == "awq":
+            try:
+                from awq import AutoAWQForCausalLM
+
+                model = AutoAWQForCausalLM.from_pretrained(model_path, device_map="auto")
+                tokenizer = AutoTokenizer.from_pretrained(model_path)
+                if tokenizer.pad_token is None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                self._model = model
+                self._tokenizer = tokenizer
+                self._model_path = model_path
+                log.info("Model loaded: %s", model_path)
+                return
+            except ImportError:
+                pass
+
         tokenizer = AutoTokenizer.from_pretrained(model_path)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token

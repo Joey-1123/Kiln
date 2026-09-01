@@ -40,3 +40,37 @@ def available(backend: str) -> list[str]:
 
 def get(name: str) -> QuantScheme:
     return SCHEMES[name]
+
+
+def validate_artifact(model_dir: str, scheme: str) -> None:
+    """Validate that *model_dir* is a usable quantized artifact for *scheme*.
+
+    Raises KilnError (USAGE) if the directory is missing or lacks the
+    expected quantization_config.  This is a lightweight, torch-free
+    gate used by ``kiln serve`` and the CUDA load path so a produced
+    artifact is never silently accepted as a plain HF dir.
+    """
+    import json
+    from pathlib import Path
+
+    from kiln.utils.errors import KilnError
+    from kiln.utils.exitcodes import USAGE
+
+    p = Path(model_dir)
+    if not p.is_dir():
+        raise KilnError(message=f"Artifact directory not found: {model_dir}", exit_code=USAGE)
+    cfg_path = p / "config.json"
+    if not cfg_path.is_file():
+        raise KilnError(message=f"Artifact {model_dir!r} missing config.json", exit_code=USAGE)
+    if scheme in QUANTIZE_SCHEMES:
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise KilnError(message=f"Cannot read {cfg_path}: {exc}", exit_code=USAGE) from exc
+        has_qcfg = bool(cfg.get("quantization_config") or cfg.get("quant_config"))
+        if not has_qcfg and scheme == "gptq":
+            raise KilnError(
+                message=f"GPTQ artifact at {model_dir!r} lacks quantization_config in config.json",
+                hint="Was the artifact produced by kiln quantize --scheme gptq?",
+                exit_code=USAGE,
+            )

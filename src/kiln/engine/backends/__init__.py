@@ -62,6 +62,7 @@ def select_backend(
     prefer: str = "",
     require_gpu: bool = False,
     require_nf4: bool = False,
+    require_gptq: bool = False,
     require_gguf: bool = False,
 ) -> BackendInfo | None:
     """Select the best backend matching constraints.
@@ -80,6 +81,8 @@ def select_backend(
         candidates = [b for b in candidates if b.supports_gpu]
     if require_nf4:
         candidates = [b for b in candidates if b.supports_nf4]
+    if require_gptq:
+        candidates = [b for b in candidates if b.supports_gptq]
     if require_gguf:
         candidates = [b for b in candidates if b.supports_gguf]
 

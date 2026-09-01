@@ -407,6 +407,9 @@ def serve(
     transport: Annotated[
         str, typer.Option("--transport")
     ] = "queue",
+    quant: Annotated[
+        str, typer.Option("--quant", "-q", help="Quantization: none|4bit|8bit|gptq|awq")
+    ] = "none",
 ) -> None:
     """Start the OpenAI/Anthropic-compatible API server."""
     import asyncio
@@ -419,6 +422,32 @@ def serve(
     from kiln.engine.engine import Engine
     from kiln.engine.gateway import create_gateway
     from kiln.engine.messages import QueueTransport
+    from kiln.quant import VALID_NAMES
+    from kiln.quant.apply import build_quant_spec
+    from kiln.utils.errors import KilnError
+
+    if quant not in VALID_NAMES:
+        opts = ", ".join(sorted(VALID_NAMES))
+        console.print(f"[red]Unknown quantization {quant!r}. Choose from: {opts}[/red]")
+        raise typer.Exit(exitcodes.USAGE)
+    try:
+        build_quant_spec(quant)
+    except KilnError as exc:
+        console.print(f"[red]{exc.message}[/red]")
+        if exc.hint:
+            console.print(f"[dim]{exc.hint}[/dim]")
+        raise typer.Exit(exc.exit_code)
+    if quant in ("gptq", "awq") and model is not None:
+        from kiln.quant import validate_artifact
+        from kiln.utils.errors import KilnError
+
+        try:
+            validate_artifact(model, quant)
+        except KilnError as exc:
+            console.print(f"[red]{exc.message}[/red]")
+            if exc.hint:
+                console.print(f"[dim]{exc.hint}[/dim]")
+            raise typer.Exit(exc.exit_code)
 
     # Register backends (never imports torch/llama_cpp)
     register_cuda()

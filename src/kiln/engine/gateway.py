@@ -273,6 +273,23 @@ def create_gateway(
     @app.post("/v1/load")
     async def load_model(body: dict[str, Any]) -> dict[str, Any]:
         """Load a model into the engine."""
+        quant = body.get("quantization", "none")
+        try:
+            from kiln.quant.apply import build_quant_spec
+
+            build_quant_spec(quant)
+        except Exception as exc:
+            from kiln.utils.errors import KilnError
+
+            if isinstance(exc, KilnError):
+                raise HTTPException(
+                    status_code=400,
+                    detail={"error": {"code": "invalid_quant", "message": exc.message}},
+                )
+            raise HTTPException(
+                status_code=400,
+                detail={"error": {"code": "invalid_quant", "message": str(exc)}},
+            )
         req_id = str(uuid.uuid4())
         fut: asyncio.Future[ModelLoaded | GenerateError] = asyncio.get_event_loop().create_future()
         app.state._pending[req_id] = fut
@@ -281,7 +298,7 @@ def create_gateway(
                 request_id=req_id,
                 model_path=body.get("model_path", ""),
                 backend=body.get("backend", ""),
-                quantization=body.get("quantization", "none"),
+                quantization=quant,
             ))
             resp = await asyncio.wait_for(fut, timeout=300.0)
             if isinstance(resp, GenerateError):
