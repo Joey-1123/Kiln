@@ -18,6 +18,7 @@ from typing import Any
 from kiln.engine.backends import BackendInfo, select_backend
 from kiln.engine.batching import ContinuousBatcher
 from kiln.engine.decode_scheduler import DecodeScheduler
+from kiln.engine.expert_budget import DecodeOnlyError
 from kiln.engine.messages import (
     CacheRebuildRequest,
     CacheRebuildResponse,
@@ -361,5 +362,11 @@ class Engine:
             await self._eng.put(GenerateError(
                 request_id=req.request_id,
                 error_code="invalid_keep_fraction",
+                error_message=str(exc),
+            ))
+        except DecodeOnlyError as exc:
+            await self._eng.put(GenerateError(
+                request_id=req.request_id,
+                error_code="decode_only",
                 error_message=str(exc),
             ))

@@ -150,6 +150,24 @@ class ExpertBank:
             self._disk[victim_id] = victim
         return True
 
+    def rebalance(self, keep_fraction: float = 0.5) -> int:
+        """Evict resident experts until GPU usage is ``<= gpu_capacity * keep_fraction``.
+
+        Elastic VRAM rebalance: frees GPU headroom before a new allocation so the
+        scheduler can avoid OOM instead of failing. Decode-phase only (the same
+        trimming guard as colibri #292 — moving experts mid-prefill corrupts
+        in-flight kernels). Returns the number of experts evicted.
+        """
+        if not 0.0 <= keep_fraction <= 1.0:
+            raise ValueError("keep_fraction must be in [0, 1]")
+        target = int(self._gpu_capacity * keep_fraction)
+        evicted = 0
+        while self._gpu_used > target:
+            if not self._evict_one():
+                break
+            evicted += 1
+        return evicted
+
     def _place_gpu(self, expert: Expert) -> None:
         came_from = (
             _CPU

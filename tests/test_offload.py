@@ -76,6 +76,29 @@ def test_rebalance_delegates_to_tier():
     assert c.tier.size == 2
 
 
+def test_rebalance_frees_expert_gpu_bytes():
+    c = OffloadCoordinator(_spec(), gpu_capacity_bytes=100)
+    c.begin_decode()
+    for eid in ["l0.e0", "l0.e1", "l0.e2", "l1.e0"]:
+        c.ensure_experts([eid])
+    before = c.stats().gpu_used_bytes
+    assert before >= 4 * _spec().expert_dim * 2
+    evicted = c.rebalance(keep_fraction=0.25)
+    assert evicted >= 1
+    after = c.stats().gpu_used_bytes
+    assert after < before
+    assert c.stats().resident_experts < 4
+
+
+def test_rebalance_expert_guard_outside_decode():
+    c = OffloadCoordinator(_spec(), gpu_capacity_bytes=100)
+    c.begin_decode()
+    c.ensure_experts(["l0.e0", "l0.e1", "l0.e2", "l1.e0"])
+    c.end_phase()
+    with pytest.raises(DecodeOnlyError):
+        c.rebalance(keep_fraction=0.25)
+
+
 def test_mover_injected_via_build_expert_bank():
     moves: list[tuple] = []
 
@@ -140,11 +163,11 @@ async def test_engine_cache_rebuild_handler():
     assert isinstance(err, GenerateError)
     assert err.error_code == "no_offload"
 
-    # Wire an offload coordinator and make some experts resident.
+    # Wire an offload coordinator and make some experts resident (decode phase:
+    # expert trimming is decode-only, so keep decode active for rebalance).
     coord = e.init_offload(_spec(), gpu_capacity_bytes=10_000, strategy="offload")
     coord.begin_decode()
     coord.ensure_experts(["l0.e0", "l0.e1", "l0.e2"])
-    coord.end_phase()
     assert coord.stats().resident_experts >= 3
 
     # Rebalance to a small keep_fraction evicts residents and reports stats.
@@ -155,3 +178,26 @@ async def test_engine_cache_rebuild_handler():
     assert resp.registered == coord.stats().registered_experts
     assert resp.gpu_capacity_bytes == 10_000
     assert resp.phase == coord.phase
+
+
+async def test_engine_cache_rebuild_rejects_non_decode():
+    import asyncio
+
+    from kiln.engine.engine import Engine
+    from kiln.engine.messages import CacheRebuildRequest, GenerateError, QueueTransport
+
+    gw_to_engine = QueueTransport()
+    eng_to_gw = QueueTransport()
+    e = Engine(gateway_transport=gw_to_engine, engine_transport=eng_to_gw)
+
+    # Register a coordinator and make experts resident, then leave the decode
+    # phase: expert eviction is decode-only (colibri #292 guard), so rebalance
+    # must surface a decode_only error rather than corrupting in-flight state.
+    coord = e.init_offload(_spec(), gpu_capacity_bytes=100, strategy="offload")
+    coord.begin_decode()
+    coord.ensure_experts(["l0.e0", "l0.e1", "l0.e2", "l1.e0"])
+    coord.end_phase()
+    await e._dispatch(CacheRebuildRequest(request_id="c2", keep_fraction=0.25))
+    err = await asyncio.wait_for(eng_to_gw.get(), timeout=2)
+    assert isinstance(err, GenerateError)
+    assert err.error_code == "decode_only"

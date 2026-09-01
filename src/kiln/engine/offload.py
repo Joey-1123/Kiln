@@ -113,8 +113,18 @@ class OffloadCoordinator:
         self._budget.trim(expert_ids)
 
     def rebalance(self, keep_fraction: float = 0.5) -> int:
-        """Elastic VRAM rebalance: evict coldest tier entries and bank victims."""
-        return self._tier.rebalance(keep_fraction=keep_fraction)
+        """Elastic VRAM rebalance: free GPU headroom across experts and prefix cache.
+
+        Delegates to the expert bank (evicts resident expert weights back to CPU
+        until ``gpu_used <= capacity * keep_fraction``) and the LFRU prefix tier.
+        Expert eviction is decode-phase only (colibri #292 guard); the tier is
+        trimmed regardless. Returns total entries evicted.
+        """
+        if not 0.0 <= keep_fraction <= 1.0:
+            raise ValueError("keep_fraction must be in [0, 1]")
+        expert_evictions = self._bank.rebalance(keep_fraction=keep_fraction)
+        tier_evictions = self._tier.rebalance(keep_fraction=keep_fraction)
+        return expert_evictions + tier_evictions
 
     def stats(self) -> OffloadStats:
         return OffloadStats(
