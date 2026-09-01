@@ -811,6 +811,104 @@ def plan(
 
 
 @app.command()
+def benchmark(
+    model: Annotated[
+        str,
+        typer.Option(
+            "--model", "-m",
+            help="Model path (GGUF for CPU, torch checkpoint for GPU).",
+        ),
+    ],
+    backend: Annotated[
+        str, typer.Option("--backend", help="Backend: cpu (llama.cpp) | torch | auto.")
+    ] = "auto",
+    requests: Annotated[int, typer.Option("--requests", help="Number of generations to run.")] = 20,
+    max_tokens: Annotated[int, typer.Option("--max-tokens", help="Tokens per generation.")] = 128,
+    quantization: Annotated[
+        str, typer.Option("--quant", "-q", help="Quantization: none|4bit|8bit|gptq|awq")
+    ] = "none",
+    json_output: Annotated[
+        Optional[str], typer.Option("--json", help="Write structured result to this JSON file.")
+    ] = None,
+) -> None:
+    """Run a compulsory serving benchmark (TTFT / tok/s / memory bars).
+
+    Loads the given model into the chosen backend and measures real throughput
+    through the serving HTTP surface. The run is compulsory: the backend must
+    be registered and the model must load, otherwise it exits 1.
+    """
+    from kiln.engine.backends import get_backend, list_backends
+    from kiln.engine.backends.cuda_native import register as register_cuda
+    from kiln.engine.backends.llama_cpp import register as register_cpu
+
+    register_cpu()
+    register_cuda()
+
+    if requests < 1:
+        console.print("[red]--requests must be >= 1.[/red]")
+        raise typer.Exit(exitcodes.USAGE)
+    if max_tokens < 1:
+        console.print("[red]--max-tokens must be >= 1.[/red]")
+        raise typer.Exit(exitcodes.USAGE)
+
+    chosen = backend
+    if backend == "auto":
+        available = list_backends()
+        if not available:
+            console.print("[red]No backends registered; nothing to benchmark.[/red]")
+            raise typer.Exit(exitcodes.RUNTIME)
+        chosen = "cpu" if any(b.name == "cpu" for b in available) else available[0].name
+    if get_backend(chosen) is None:
+        console.print(
+            f"[red]Backend {chosen!r} is not available. Registered: "
+            f"{', '.join(sorted(b.name for b in list_backends())) or 'none'}.[/red]"
+        )
+        raise typer.Exit(exitcodes.RUNTIME)
+
+    from kiln.benchmarks import print_report, run_benchmark, write_json
+
+    try:
+        console.print(
+            f"[dim]Benchmarking backend={chosen} model={model} "
+            f"({requests}x{max_tokens} tok, quant={quantization})...[/dim]"
+        )
+        result = asyncio.run(
+            run_benchmark(
+                backend=chosen,
+                model=model,
+                requests=requests,
+                max_tokens=max_tokens,
+                quantization=quantization,
+            )
+        )
+    except Exception as exc:
+        text = f"{exc}"
+        if "No module named" in text:
+            missing = text.split("'")[1] if "'" in text else "the required module"
+            hint = (
+                "Install the CPU backend with: pip install llama-cpp-python"
+                if chosen == "cpu"
+                else "Install the GPU backend with: pip install 'kiln-cli[train]' (requires CUDA)"
+            )
+            console.print(
+                f"[red]Could not load backend {chosen!r}: {missing!r} is not installed.[/red]"
+            )
+            console.print(f"[dim]{hint}[/dim]")
+            raise typer.Exit(exitcodes.RUNTIME)
+        friendly = map_exception(exc)
+        console.print(f"[red]{friendly.message}[/red]")
+        if friendly.hint:
+            console.print(f"[dim]{friendly.hint}[/dim]")
+        raise typer.Exit(friendly.exit_code or exitcodes.RUNTIME)
+
+    print_report(result, console=console)
+
+    if json_output:
+        write_json(result, json_output)
+        console.print(f"[green]Wrote {json_output}[/green]")
+
+
+@app.command()
 def ship(
     config: Annotated[str, typer.Option("--config", "-c", help="Path to kiln.yaml")],
     metric: Annotated[str, typer.Option("--metric", help="Metric name to evaluate")] = "accuracy",
