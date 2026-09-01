@@ -355,6 +355,7 @@ def train(
             lr=cfg.recipe.training.lr,
             seed=cfg.recipe.training.seed,
             quantization=cfg.recipe.training.quantization,
+            layer_streaming=cfg.recipe.training.layer_streaming,
         )
     elif mode == "dpo":
         from kiln.trainer.dpo import train_dpo
@@ -375,6 +376,7 @@ def train(
             lr=cfg.recipe.training.lr,
             seed=cfg.recipe.training.seed,
             quantization=cfg.recipe.training.quantization,
+            layer_streaming=cfg.recipe.training.layer_streaming,
         )
     else:
         console.print(f"[red]Unknown mode: {mode!r}. Use 'sft' or 'dpo'.[/red]")

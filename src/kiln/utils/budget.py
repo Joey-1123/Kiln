@@ -103,6 +103,34 @@ def estimate_vram_bytes(
     return raw + margin
 
 
+def estimate_streaming_vram_bytes(
+    *,
+    param_count: int,
+    lora_rank: int,
+    lora_target_modules: int,
+    batch_size: int,
+    seq_len: int,
+    hidden_size: int,
+    layers: int,
+    safety_margin_fraction: float = 0.10,
+) -> int:
+    """Streaming-aware estimate: peak is one layer plus LoRA and activations."""
+    from kiln.trainer.layer_stream import estimate_streaming_peak
+
+    full = estimate_vram_bytes(
+        param_count=param_count,
+        lora_rank=lora_rank,
+        lora_target_modules=lora_target_modules,
+        batch_size=batch_size,
+        seq_len=seq_len,
+        hidden_size=hidden_size,
+        safety_margin_fraction=safety_margin_fraction,
+    )
+    overhead = batch_size * seq_len * hidden_size * 2 * 4
+    est = estimate_streaming_peak(full, layers=layers, overhead_bytes=overhead)
+    return est.streaming_peak_bytes
+
+
 def check_vram(
     *,
     param_count: int,

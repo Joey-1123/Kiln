@@ -45,6 +45,7 @@ def train_dpo(
     seed: int = 1234,
     quantization: str = "4bit",
     beta: float = 0.1,
+    layer_streaming: bool = False,
 ) -> DPOTrainResult:
     """Run DPO training with QLoRA NF4.
 
@@ -85,6 +86,7 @@ def train_dpo(
             seed=seed,
             quantization=quantization,
             beta=beta,
+            layer_streaming=layer_streaming,
         )
     except Exception as exc:
         log.exception("DPO training failed")
@@ -106,6 +108,7 @@ def _run_dpo(
     seed: int,
     quantization: str,
     beta: float,
+    layer_streaming: bool = False,
 ) -> DPOTrainResult:
     """Inner DPO logic — heavy imports happen here."""
     import json
@@ -182,6 +185,18 @@ def _run_dpo(
     )
 
     # --- 9. Train ---
+    if layer_streaming:
+        log.info("layer_streaming enabled for DPO: checkpointing + canonical keys")
+        try:
+            model.gradient_checkpointing_enable()
+        except Exception:
+            pass
+        from kiln.trainer.layer_stream import (
+            assert_canonical_intersection,
+            canonical_state_dict,
+        )
+
+        model.enable_input_require_grads()
     trainer = DPOTrainer(
         model=model,
         args=training_args,
@@ -199,8 +214,12 @@ def _run_dpo(
             error="Training ended with NaN loss — adapter not saved",
         )
 
-    # --- 11. Save adapter ---
+    # --- 11. Save adapter with canonical validation when streaming ---
     adapter_dir = str(Path(output_dir) / "adapter")
+    if layer_streaming:
+        state = {k: v for k, v in model.named_parameters() if "lora_" in k}
+        canonical = canonical_state_dict({k: v.cpu() for k, v in state.items()})
+        assert_canonical_intersection(list(model.named_parameters()), canonical)
     model.save_pretrained(adapter_dir)
     tokenizer.save_pretrained(adapter_dir)
 

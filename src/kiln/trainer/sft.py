@@ -44,6 +44,7 @@ def train_sft(
     lr: float = 2e-5,
     seed: int = 1234,
     quantization: str = "4bit",
+    layer_streaming: bool = False,
 ) -> TrainResult:
     """Run SFT training with QLoRA NF4.
 
@@ -78,6 +79,7 @@ def train_sft(
             lr=lr,
             seed=seed,
             quantization=quantization,
+            layer_streaming=layer_streaming,
         )
     except Exception as exc:
         log.exception("SFT training failed")
@@ -98,6 +100,7 @@ def _run_sft(
     lr: float,
     seed: int,
     quantization: str,
+    layer_streaming: bool = False,
 ) -> TrainResult:
     """Inner SFT logic — heavy imports happen here, never at module level."""
     import json
@@ -165,6 +168,18 @@ def _run_sft(
     )
 
     # --- 9. Train ---
+    if layer_streaming:
+        log.info("layer_streaming enabled: using canonical key path and gradient checkpointing")
+        try:
+            model.gradient_checkpointing_enable()
+        except Exception:
+            pass
+        from kiln.trainer.layer_stream import (
+            assert_canonical_intersection,
+            canonical_state_dict,
+        )
+
+        model.enable_input_require_grads()
     trainer = SFTTrainer(
         model=model,
         args=training_args,
@@ -173,8 +188,12 @@ def _run_sft(
     )
     trainer.train()
 
-    # --- 10. Save adapter ---
+    # --- 10. Save adapter with canonical keys ---
     adapter_dir = str(Path(output_dir) / "adapter")
+    if layer_streaming:
+        state = {k: v for k, v in model.named_parameters() if "lora_" in k}
+        canonical = canonical_state_dict({k: v.cpu() for k, v in state.items()})
+        assert_canonical_intersection(list(model.named_parameters()), canonical)
     model.save_pretrained(adapter_dir)
     tokenizer.save_pretrained(adapter_dir)
 
