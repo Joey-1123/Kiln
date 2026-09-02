@@ -687,3 +687,18 @@ def test_backend_cpu_strategy_routes(tmp_path):
     assert np.asarray(out).shape == (8,)
     # CPU strategy: expert is NOT resident on GPU.
     assert not bank.is_resident("l0.e0")
+
+
+
+# ---------------------------------------------------------------------------
+# route_experts non-finite input guard
+# ---------------------------------------------------------------------------
+
+
+def test_scaled_logits_preserve_ranking():
+    """Multiplying all logits by a positive constant preserves the top-k set."""
+    ids = ["a", "b", "c", "d"]
+    base = [1.0, 4.0, 2.0, 3.0]
+    s1, _ = route_experts(base, ids, top_k=2)
+    s2, _ = route_experts([v * 3.0 for v in base], ids, top_k=2)
+    assert set(s1) == set(s2)
