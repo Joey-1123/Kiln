@@ -721,3 +721,25 @@ def test_routed_is_deterministic_across_repeated_calls(tmp_path):
     for _ in range(5):
         again = np.asarray(fwd.routed(x, ["l0.e0", "l0.e1"], [0.5, 0.5]))
         np.testing.assert_array_almost_equal(first, again)
+
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: route_experts_batch -> routed_batch forward
+# ---------------------------------------------------------------------------
+
+
+def test_route_batch_feeds_routed_batch(tmp_path):
+    """Full path: matrix gate logits -> per-position routes -> batch forward."""
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    bank.enter_decode()
+    fwd = _weave(bank, mover)
+
+    ids = sorted(bank.experts)
+    # Two positions: pos0 favors e1 strongly, pos1 favors e0 strongly.
+    logits = np.array([[9.0, 1.0], [1.0, 9.0]], dtype=np.float64)
+    routes = route_experts_batch(logits, ids, top_k=1)
+
+    x = np.random.default_rng(7).random((2, 8), dtype=np.float32) * 2.0
+    out = fwd.routed_batch(x, routes)
+    assert np.asarray(out).shape == (2, 8)
