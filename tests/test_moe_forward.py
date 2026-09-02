@@ -467,3 +467,38 @@ def test_routed_cross_layer_batch(tmp_path):
     ]
     out = fwd.routed_batch(x, routes)
     assert out.shape == (2, 8)
+
+
+
+# ---------------------------------------------------------------------------
+# Commutativity and score-sum invariants
+# ---------------------------------------------------------------------------
+
+
+def test_routed_commutative_in_expert_order(tmp_path):
+    """Routing {e0, e1} in either order gives the same output (weighted sum)."""
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    fwd = _weave(bank, mover)
+    bank.enter_decode()
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+
+    out_01 = fwd.routed(x, ["l0.e0", "l0.e1"], [0.4, 0.6])
+    out_10 = fwd.routed(x, ["l0.e1", "l0.e0"], [0.6, 0.4])
+
+    np.testing.assert_allclose(np.asarray(out_01), np.asarray(out_10), atol=1e-5)
+
+
+def test_routed_score_sum_invariant(tmp_path):
+    """With all-resident experts, output scales with score total."""
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    fwd = _weave(bank, mover)
+    bank.enter_decode()
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+
+    out_half = fwd.routed(x, ["l0.e0"], [0.5])
+    out_full = fwd.routed(x, ["l0.e0"], [1.0])
+
+    # Score 1.0 = full expert output; score 0.5 = half that.
+    np.testing.assert_allclose(
+        np.asarray(out_full), np.asarray(out_half) * 2.0, atol=1e-3
+    )
