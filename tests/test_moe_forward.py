@@ -502,3 +502,38 @@ def test_routed_score_sum_invariant(tmp_path):
     np.testing.assert_allclose(
         np.asarray(out_full), np.asarray(out_half) * 2.0, atol=1e-3
     )
+
+
+
+# ---------------------------------------------------------------------------
+# Edge cases: empty routing, duplicate experts, malformed input
+# ---------------------------------------------------------------------------
+
+
+def test_routed_empty_expert_ids_returns_zero(tmp_path):
+    """Routing zero experts returns a zero tensor of the same shape."""
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    fwd = _weave(bank, mover)
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+    out = fwd.routed(x, [], [])
+    np.testing.assert_array_equal(np.asarray(out), np.zeros(8))
+
+
+def test_routed_duplicate_expert_ids(tmp_path):
+    """Routing the same expert twice applies its score twice (weighted sum)."""
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    fwd = _weave(bank, mover)
+    bank.enter_decode()
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+
+    out_dup = fwd.routed(x, ["l0.e0", "l0.e0"], [0.5, 0.5])
+    out_one = fwd.routed(x, ["l0.e0"], [1.0])
+
+    np.testing.assert_allclose(np.asarray(out_dup), np.asarray(out_one), atol=1e-5)
+
+
+def test_route_experts_scores_always_sum_to_one():
+    """route_experts normalised scores always sum to 1.0."""
+    for logits in [[1.0, 2.0, 3.0], [0.0, 0.0, 0.0], [-100.0, 100.0, -50.0]]:
+        _, scores = route_experts(logits, ["a", "b", "c"], top_k=2)
+        assert abs(sum(scores) - 1.0) < 1e-6
