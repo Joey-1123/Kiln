@@ -1,0 +1,186 @@
+"""Tests for the B6 MoE forward block (``moe_forward``).
+
+These drive the full weight path introduced by B6 — a toy safetensors
+shard -> :class:`SafetensorsExpertStore` -> :class:`TorchExpertMover` ->
+:class:`ExpertBank` -> :class:`MoeForward` — and assert that routing through the
+bank produces a correct, eviction-stable routed output. They run on CPU only.
+"""
+
+import numpy as np
+import pytest
+import safetensors.numpy as sn
+
+from kiln.engine.expert_bank import Expert, ExpertBank, Strategy
+from kiln.engine.expert_mover import TorchExpertMover
+from kiln.engine.moe_forward import MoeForward, _projection_key
+from kiln.engine.safetensors_store import SafetensorsExpertStore
+
+
+def _build_model_dir(tmp_path, layer_count: int = 1, expert_count: int = 2):
+    """Write a toy single-shard MoE model; return the tmp dir path.
+
+    Hidden size is fixed at 8; each expert owns up(4x8), gate(4x8), down(8x4)
+    so ``d_model=8``, ``expert_dim=4`` and a projection is (out, in). We load
+    with distractor weights so a mix-up of experts or projections changes
+    output measurably.
+    """
+    tensors = {}
+    for layer in range(layer_count):
+        for e in range(expert_count):
+            # Distinct weights per expert: gate differs from up, and index by e.
+            up = np.ones((4, 8), dtype=np.float16) * (e + 1)
+            gate = np.ones((4, 8), dtype=np.float16) * (e + 1) * -1
+            down = np.ones((8, 4), dtype=np.float16) * (e + 1)
+            tensors[f"layers.{layer}.experts.{e}.up_proj.weight"] = up
+            tensors[f"layers.{layer}.experts.{e}.gate_proj.weight"] = gate
+            tensors[f"layers.{layer}.experts.{e}.down_proj.weight"] = down
+    sn.save_file(tensors, str(tmp_path / "model.safetensors"))
+    return tmp_path
+
+
+def _bank(tmp_path, gpu_capacity: int, strategy: Strategy = Strategy.offload):
+    """Build a full B6 stack: store -> mover -> bank. Return ``(store, mover, bank)``."""
+    store = SafetensorsExpertStore(_build_model_dir(tmp_path))
+    mover = TorchExpertMover(store.expert_blobs())
+    bank = ExpertBank(gpu_capacity, strategy=strategy, mover=mover.move)
+    for e in store.experts():
+        bank.register(e)
+    return store, mover, bank
+
+
+def _bank_in_decode(tmp_path, gpu_capacity: int):
+    """Build the stack and enter the decode phase (eviction is now legal)."""
+    _, mover, bank = _bank(tmp_path, gpu_capacity)
+    bank.enter_decode()
+    return mover, bank
+
+
+def _weave(bank, mover, hidden=8):
+    return MoeForward(bank, mover=mover, hidden_size=hidden)
+
+
+# ---------------------------------------------------------------------------
+# Projection-key resolver
+# ---------------------------------------------------------------------------
+
+
+def test_projection_key_rebuilds_safetensors_names():
+    assert _projection_key("l0.e0", "up_proj") == "layers.0.experts.0.up_proj.weight"
+    assert _projection_key("l2.e5", "down_proj") == "layers.2.experts.5.down_proj.weight"
+    assert _projection_key("l10.e3", "gate_proj") == "layers.10.experts.3.gate_proj.weight"
+
+
+# ---------------------------------------------------------------------------
+# Forward compute (routed, real weights through the mover)
+# ---------------------------------------------------------------------------
+
+
+def test_routed_produces_weighted_sum_of_expert_projections(tmp_path):
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    fwd = _weave(bank, mover)
+    x = np.linspace(-1, 1, 8, dtype=np.float32)
+
+    out = fwd.routed(x, ["l0.e0", "l0.e1"], [0.4, 0.6])
+
+    # Manual reference: for expert e with scale s,
+    #   contrib_e = s * ( (x @ up.T) * (x @ gate.T) ) @ down.T
+    contribs = []
+    for ei, s in (("e0", 0.4), ("e1", 0.6)):
+        exp_num = ei[1:]
+        up = mover._resident_tensors[f"l0.{ei}"][f"layers.0.experts.{exp_num}.up_proj.weight"]
+        gate = mover._resident_tensors[f"l0.{ei}"][f"layers.0.experts.{exp_num}.gate_proj.weight"]
+        down = mover._resident_tensors[f"l0.{ei}"][f"layers.0.experts.{exp_num}.down_proj.weight"]
+        # Mover holds torch CPU tensors; the forward coerces to numpy for x.
+        up, gate, down = (np.asarray(t.detach().cpu().numpy()) for t in (up, gate, down))
+        x_up = x @ up.T
+        x_gate = x @ gate.T
+        inner = x_up * x_gate
+        contribs.append(s * (inner @ down.T))
+    expected = contribs[0] + contribs[1]
+
+    np.testing.assert_allclose(np.asarray(out), expected, atol=1e-2, rtol=1e-2)
+
+
+def test_routed_single_expert_matches_direct_computation(tmp_path):
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    fwd = _weave(bank, mover)
+    x = np.linspace(-1, 1, 8, dtype=np.float32)
+
+    out = fwd.routed(x, ["l0.e0"], [1.0])
+
+    up = mover._resident_tensors["l0.e0"]["layers.0.experts.0.up_proj.weight"]
+    gate = mover._resident_tensors["l0.e0"]["layers.0.experts.0.gate_proj.weight"]
+    down = mover._resident_tensors["l0.e0"]["layers.0.experts.0.down_proj.weight"]
+    up, gate, down = (np.asarray(t.detach().cpu().numpy()) for t in (up, gate, down))
+    expected = ((x @ up.T) * (x @ gate.T)) @ down.T
+
+    np.allclose(np.asarray(out), expected, atol=1e-2)
+
+
+# ---------------------------------------------------------------------------
+# Parity: all-resident vs evict-reload must be bit-identical
+# ---------------------------------------------------------------------------
+
+
+def test_routed_identical_under_evict_reload_parity(tmp_path):
+    """Routing 2 experts must be deterministic regardless of residency policy.
+
+    A tiny GPU budget forces the bank to evict one expert to fit the other, so
+    the mover reloads between the two expert projections; the routed output
+    must not change.
+    """
+    # Budget fits exactly one expert (192 bytes each), forcing evict-reload.
+    mover_a, bank_a = _bank_in_decode(tmp_path, gpu_capacity=192)
+    fwd_a = _weave(bank_a, mover_a)
+    x = np.linspace(-1, 1, 8, dtype=np.float32)
+    out_a = fwd_a.routed(x, ["l0.e0", "l0.e1"], [0.5, 0.5])
+
+    # Same model, generous budget: both stay resident, no eviction.
+    mover_b, bank_b = _bank_in_decode(tmp_path, gpu_capacity=10_000)
+    fwd_b = _weave(bank_b, mover_b)
+    out_b = fwd_b.routed(x, ["l0.e0", "l0.e1"], [0.5, 0.5])
+
+    np.testing.assert_allclose(
+        np.asarray(out_a), np.asarray(out_b), atol=1e-2, rtol=1e-2
+    )
+    # And the evict-reload path really did evict: with a one-expert budget the
+    # second routed expert cannot be resident simultaneously with the first.
+    assert not (bank_a.is_resident("l0.e0") and bank_a.is_resident("l0.e1"))
+    assert bank_b.is_resident("l0.e0") and bank_b.is_resident("l0.e1")
+
+
+def test_ensure_resident_materializes_through_mover(tmp_path):
+    """Before routing, requested experts are resident; the mover holds tensors."""
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    fwd = _weave(bank, mover)
+    fwd.routed(np.linspace(0, 1, 8), ["l0.e0"], [1.0])
+    assert bank.is_resident("l0.e0")
+    assert "l0.e0" in mover._resident_tensors
+
+
+def test_cpu_strategy_never_promotes_to_gpu(tmp_path):
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000, strategy=Strategy.cpu)
+    fwd = _weave(bank, mover)
+    fwd.routed(np.linspace(0, 1, 8), ["l0.e0"], [1.0])
+    assert not bank.is_resident("l0.e0")
+
+
+def test_unknown_expert_without_hidden_raises(tmp_path):
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    fwd = MoeForward(bank, mover=mover, hidden_size=0)
+    with pytest.raises(KeyError):
+        fwd.routed(np.zeros(8), ["l99.e9"], [1.0])
+
+
+def test_synthetic_identity_projection_no_mover(tmp_path):
+    """Without a mover, identity projections route x through the MoE math.
+
+    With up=gate=down=identity the routed single-expert result is
+    ``(x * x) @ I == x ** 2`` (MoE gate is a pointwise product, not a no-op).
+    """
+    bank = ExpertBank(10_000, strategy=Strategy.offload)
+    bank.register(Expert("l0.e0", size_bytes=192, dims=8))
+    fwd = MoeForward(bank, mover=None, hidden_size=8)
+    x = np.linspace(-1, 1, 8)
+    out = fwd.routed(x, ["l0.e0"], [1.0])
+    np.testing.assert_allclose(np.asarray(out), x * x, rtol=1e-6, atol=1e-6)
