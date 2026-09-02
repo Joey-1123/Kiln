@@ -344,3 +344,53 @@ def test_route_experts_end_to_end_with_routed(tmp_path):
     x = np.linspace(-1, 1, 8, dtype=np.float32)
     out = fwd.routed(x, sel, scores)
     assert np.asarray(out).shape == (8,)
+
+
+
+# ---------------------------------------------------------------------------
+# Torch-path coverage (CPU torch tensors, no GPU needed)
+# ---------------------------------------------------------------------------
+
+
+def _bank_torch(tmp_path):
+    """Build a B6 stack with torch tensors (device=cpu) for the torch path."""
+    store = SafetensorsExpertStore(_build_model_dir(tmp_path))
+    mover = TorchExpertMover(store.expert_blobs(), device="cpu")
+    bank = ExpertBank(10_000, strategy=Strategy.offload, mover=mover.move)
+    for e in store.experts():
+        bank.register(e)
+    bank.enter_decode()
+    return mover, bank
+
+
+def test_routed_torch_path_matches_numpy(tmp_path):
+    """Routed output with torch tensors matches the numpy path."""
+    import torch
+
+    # Numpy reference path.
+    _, mover_np, bank_np = _bank(tmp_path, gpu_capacity=10_000)
+    fwd_np = _weave(bank_np, mover_np)
+    x_np = np.linspace(-1, 1, 8, dtype=np.float32)
+    out_np = fwd_np.routed(x_np, ["l0.e0"], [1.0])
+
+    # Torch path: mover has torch CPU tensors; x is torch.
+    mover_th, bank_th = _bank_torch(tmp_path)
+    fwd_th = _weave(bank_th, mover_th)
+    x_th = torch.linspace(-1, 1, 8)
+    out_th = fwd_th.routed(x_th, ["l0.e0"], [1.0])
+
+    np.testing.assert_allclose(
+        np.asarray(out_np), out_th.detach().cpu().numpy(), atol=1e-2, rtol=1e-2
+    )
+
+
+def test_routed_batch_torch_path(tmp_path):
+    """Batched routing with torch tensors produces correct shape."""
+    import torch
+
+    mover_th, bank_th = _bank_torch(tmp_path)
+    fwd_th = _weave(bank_th, mover_th)
+    x = torch.linspace(-1, 1, 16).reshape(2, 8)
+    routes = [(["l0.e0"], [1.0]), (["l0.e1"], [1.0])]
+    out = fwd_th.routed_batch(x, routes)
+    assert out.shape == (2, 8)

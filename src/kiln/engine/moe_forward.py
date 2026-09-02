@@ -113,12 +113,19 @@ class MoeForward:
         """Normalize a weight tensor ``w`` into the library/device of ``ref``."""
         from_lib = _library_kind(w)
         if from_lib == library:
+            if library == "torch":
+                import torch
+
+                # Match dtype of ref (e.g. fp16 weights → fp32 x) so matmuls
+                # don't reject mixed-precision operands.
+                if w.dtype != ref.dtype:
+                    return w.to(ref.dtype)
             return w
         if library == "torch":
             import torch
 
             # ``ref`` is a torch tensor whenever library is "torch".
-            return torch.as_tensor(w, device=ref.device)
+            return torch.as_tensor(w, device=ref.device).to(ref.dtype)
         import numpy as np
 
         return w.detach().cpu().numpy() if _is_torch_tensor(w) else np.asarray(w)
