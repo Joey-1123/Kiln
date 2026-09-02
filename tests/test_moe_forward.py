@@ -12,7 +12,13 @@ import safetensors.numpy as sn
 
 from kiln.engine.expert_bank import Expert, ExpertBank, Strategy
 from kiln.engine.expert_mover import TorchExpertMover
-from kiln.engine.moe_forward import MoeForward, _projection_key, route_experts, route_experts_batch
+from kiln.engine.moe_forward import (
+    MoeForward,
+    _projection_key,
+    route_experts,
+    route_experts_batch,
+    route_from_bank,
+)
 from kiln.engine.safetensors_store import SafetensorsExpertStore
 
 
@@ -565,3 +571,27 @@ def test_eviction_count_resets():
     fwd._evictions = 5
     fwd.reset_weight_moves()
     assert fwd.weight_moves == 0
+
+
+
+# ---------------------------------------------------------------------------
+# route_from_bank (bank-aware routing)
+# ---------------------------------------------------------------------------
+
+
+def test_route_from_bank_uses_bank_topology(tmp_path):
+    """route_from_bank maps logits to the bank's sorted expert ids."""
+    _, _, bank = _bank(tmp_path, gpu_capacity=10_000)
+    expert_ids = sorted(bank.experts)
+    assert len(expert_ids) == 2  # l0.e0, l0.e1
+    logits = [0.0, 10.0]  # second expert has highest logit
+    sel, scores = route_from_bank(logits, bank, top_k=1)
+    assert sel == [expert_ids[1]]
+
+
+def test_route_from_bank_rejects_length_mismatch(tmp_path):
+    _, _, bank = _bank(tmp_path, gpu_capacity=10_000)
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        route_from_bank([1.0], bank, top_k=1)  # 1 logit != 2 experts

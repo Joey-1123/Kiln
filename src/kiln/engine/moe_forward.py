@@ -271,6 +271,25 @@ class MoeForward:
 # ---------------------------------------------------------------------------
 
 
+def route_from_bank(
+    gate_logits: Any,
+    bank: ExpertBank,
+    top_k: int = 2,
+) -> tuple[list[str], list[float]]:
+    """Route gate logits using the bank's expert topology as the id ordering.
+
+    Convenience wrapper around :func:`route_experts` that reads
+    ``bank.experts`` and maps logit positions to the bank's sorted expert
+    ids.  The caller must ensure logit length matches the bank size.
+    """
+    expert_ids = sorted(bank.experts)
+    if len(gate_logits) != len(expert_ids):
+        raise ValueError(
+            f"logits length {len(gate_logits)} != bank size {len(expert_ids)}"
+        )
+    return route_experts(gate_logits, expert_ids, top_k)
+
+
 def route_experts(
     gate_logits: Any,
     expert_ids: list[str],
