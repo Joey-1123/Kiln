@@ -423,3 +423,47 @@ def test_route_experts_batch_1d_logit_single_position():
     routes = route_experts_batch(logits, ids, top_k=1)
     assert len(routes) == 1
     assert routes[0][0] == ["a"]
+
+
+
+# ---------------------------------------------------------------------------
+# Multi-layer routing
+# ---------------------------------------------------------------------------
+
+
+def test_routed_multi_layer_experts(tmp_path):
+    """Experts from different layers route correctly through the bank."""
+    store = SafetensorsExpertStore(_build_model_dir(tmp_path, layer_count=3, expert_count=2))
+    mover = TorchExpertMover(store.expert_blobs(), device="cpu")
+    bank = ExpertBank(10_000, strategy=Strategy.offload, mover=mover.move)
+    for e in store.experts():
+        bank.register(e)
+    bank.enter_decode()
+    assert set(bank.experts) == {
+        f"l{L}.e{E}" for L in range(3) for E in range(2)
+    }
+
+    fwd = MoeForward(bank, mover=mover, hidden_size=8)
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+    out = fwd.routed(x, ["l0.e0", "l1.e1", "l2.e0"], [0.5, 0.3, 0.2])
+    assert np.asarray(out).shape == (8,)
+    assert not np.allclose(out, np.zeros(8))
+
+
+def test_routed_cross_layer_batch(tmp_path):
+    """Batched routing with experts from different layers."""
+    store = SafetensorsExpertStore(_build_model_dir(tmp_path, layer_count=2, expert_count=2))
+    mover = TorchExpertMover(store.expert_blobs(), device="cpu")
+    bank = ExpertBank(10_000, strategy=Strategy.offload, mover=mover.move)
+    for e in store.experts():
+        bank.register(e)
+    bank.enter_decode()
+
+    fwd = MoeForward(bank, mover=mover, hidden_size=8)
+    x = np.arange(16, dtype=np.float32).reshape(2, 8)
+    routes = [
+        (["l0.e0", "l1.e1"], [0.6, 0.4]),
+        (["l1.e0", "l0.e1"], [0.7, 0.3]),
+    ]
+    out = fwd.routed_batch(x, routes)
+    assert out.shape == (2, 8)
