@@ -97,6 +97,7 @@ class MoeForward:
         self._bank = bank
         self._mover = mover
         self._hidden = hidden_size
+        self._evictions = 0
 
     # -- tensor supply ------------------------------------------------------
     def _resident_tensors(self, expert_id: str) -> dict[str, Any]:
@@ -216,6 +217,7 @@ class MoeForward:
 
     def _ensure_resident(self, expert_ids: list[str]) -> None:
         """Ensure the routed experts are resident on the bank's gpu tier."""
+        before_ids = set(self._bank.resident_ids)
         for eid in expert_ids:
             exp = self._bank.experts.get(eid)
             if exp is not None:
@@ -225,6 +227,18 @@ class MoeForward:
                     f"unknown expert {eid!r} and hidden_size=0 "
                     "(cannot synthesize identity projection)"
                 )
+        after_ids = set(self._bank.resident_ids)
+        evicted = before_ids - after_ids
+        self._evictions += len(evicted)
+
+    @property
+    def weight_moves(self) -> int:
+        """Total number of weight moves (tier changes) triggered since construction."""
+        return self._evictions
+
+    def reset_weight_moves(self) -> None:
+        """Reset the weight-move counter."""
+        self._evictions = 0
 
     def _weights_for(self, eid: str, library: str) -> tuple[Any, Any, Any]:
         """Return ``(up, gate, down)`` weight tensors for ``eid``.

@@ -537,3 +537,31 @@ def test_route_experts_scores_always_sum_to_one():
     for logits in [[1.0, 2.0, 3.0], [0.0, 0.0, 0.0], [-100.0, 100.0, -50.0]]:
         _, scores = route_experts(logits, ["a", "b", "c"], top_k=2)
         assert abs(sum(scores) - 1.0) < 1e-6
+
+
+
+# ---------------------------------------------------------------------------
+# Eviction observability
+# ---------------------------------------------------------------------------
+
+
+def test_eviction_count_increases_with_evictions(tmp_path):
+    """A tight GPU budget forces evictions; the counter tracks them."""
+    _, mover, bank = _bank(tmp_path, gpu_capacity=192)  # fits one expert
+    fwd = _weave(bank, mover)
+    bank.enter_decode()
+
+    fwd.routed(np.ones(8), ["l0.e0"], [1.0])
+    first_count = fwd.weight_moves
+    assert first_count == 0  # first placement is not an eviction
+
+    fwd.routed(np.ones(8), ["l0.e1"], [1.0])
+    assert fwd.weight_moves > first_count  # e0 evicted to make room for e1
+
+
+def test_eviction_count_resets():
+    bank = ExpertBank(10_000, strategy=Strategy.offload)
+    fwd = MoeForward(bank, hidden_size=8)
+    fwd._evictions = 5
+    fwd.reset_weight_moves()
+    assert fwd.weight_moves == 0
