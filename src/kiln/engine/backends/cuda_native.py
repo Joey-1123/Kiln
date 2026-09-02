@@ -125,6 +125,44 @@ class CUDABackend:
         self._model_path = model_path
         log.info("Model loaded: %s", model_path)
 
+    def load_moe_experts(
+        self,
+        model_dir: str,
+        *,
+        strategy: str = "offload",
+        gpu_capacity_bytes: int = 8 << 30,
+    ) -> Any:
+        """Wire the MoE expert topology for ``model_dir`` to real GPU weights.
+
+        Resolves the model's safely sharded expert tensors (B6-1), binds a real
+        mover (B6-2) that loads shard bytes onto this model's device, and builds
+        an :class:`ExpertBank` (B6-3) driven by it. Returns the bank; the caller
+        (engine / CI gate) calls ``ensure_resident`` during decode to physically
+        move experts onto the GPU.
+
+        All heavy imports are lazy so the startup-light probe stays green.
+        """
+        from kiln.engine.expert_bank import ExpertBank, Strategy
+        from kiln.engine.expert_mover import TorchExpertMover
+        from kiln.engine.safetensors_store import SafetensorsExpertStore
+
+        store = SafetensorsExpertStore(model_dir)
+        device = str(self._model.device) if self._model is not None else None
+        mover = TorchExpertMover(store.expert_blobs(), device=device)
+        bank = ExpertBank(
+            gpu_capacity_bytes=gpu_capacity_bytes,
+            strategy=Strategy[strategy],
+            mover=mover.move,
+        )
+        store.populate(bank)
+        self._expert_mover = mover
+        return bank
+
+    @property
+    def expert_mover(self) -> Any:
+        """The last :class:`TorchExpertMover` created by :meth:`load_moe_experts`."""
+        return getattr(self, "_expert_mover", None)
+
     def generate(
         self,
         prompt: str,
