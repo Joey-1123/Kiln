@@ -246,6 +246,61 @@ class MoeForward:
 
 
 # ---------------------------------------------------------------------------
+# Gate: route raw logits to top-k expert ids + normalised scores
+# ---------------------------------------------------------------------------
+
+
+def route_experts(
+    gate_logits: Any,
+    expert_ids: list[str],
+    top_k: int = 2,
+) -> tuple[list[str], list[float]]:
+    """Select top-k experts from raw gate logits and return normalised scores.
+
+    This is the missing router primitive between the gate network's raw
+    output (n_experts,) logits and :meth:`MoeForward.routed`.  It applies
+    temperature-1 softmax in numpy (torch-free), selects the top-k experts,
+    and renormalises scores so they sum to 1.0 across the selected set
+    (standard MoE normalisation: ``score_i = softmax_i / sum(softmax)``).
+
+    Parameters
+    ----------
+    gate_logits:
+        Raw unnormalised logits, one per registered expert — a numpy array or
+        list of length ``len(expert_ids)``.
+    expert_ids:
+        Ordered expert ids corresponding to the logit positions (must match
+        the bank's ``experts`` keys).
+    top_k:
+        Number of experts to route to (default 2). Clamped to
+        ``min(top_k, len(expert_ids))``.
+
+    Returns
+    -------
+    ``(selected_ids, selected_scores)`` — the chosen expert ids and their
+    renormalised routing scores (length ``top_k``).
+    """
+    import numpy as np
+
+    logits = np.asarray(gate_logits, dtype=np.float64)
+    k = min(top_k, len(expert_ids))
+    if k == 0:
+        return [], []
+    # Numerically-stable softmax.
+    logits -= logits.max()
+    exp = np.exp(logits)
+    probs = exp / exp.sum()
+    top_idx = np.argpartition(probs, -k)[-k:]
+    top_idx = top_idx[np.argsort(probs[top_idx])[::-1]]  # descending
+    selected_ids = [expert_ids[i] for i in top_idx]
+    selected_probs = probs[top_idx]
+    # Renormalise so selected scores sum to 1.0.
+    total = selected_probs.sum()
+    selected_scores = (selected_probs / total).tolist()
+    return selected_ids, selected_scores
+
+
+# ---------------------------------------------------------------------------
 # Default ops (torch or numpy, chosen from the tensor's type)
 # ---------------------------------------------------------------------------
 

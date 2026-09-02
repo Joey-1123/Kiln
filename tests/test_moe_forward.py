@@ -12,7 +12,7 @@ import safetensors.numpy as sn
 
 from kiln.engine.expert_bank import Expert, ExpertBank, Strategy
 from kiln.engine.expert_mover import TorchExpertMover
-from kiln.engine.moe_forward import MoeForward, _projection_key
+from kiln.engine.moe_forward import MoeForward, _projection_key, route_experts
 from kiln.engine.safetensors_store import SafetensorsExpertStore
 
 
@@ -293,3 +293,54 @@ def test_routed_batch_rejects_wrong_route_count(tmp_path):
 
     with _pytest.raises(ValueError):
         fwd.routed_batch(x, [(["l0.e0"], [1.0])])  # 1 route for 3 rows
+
+
+
+# ---------------------------------------------------------------------------
+# route_experts gate primitive
+# ---------------------------------------------------------------------------
+
+
+def test_route_experts_returns_top2_with_normalised_scores():
+    ids = ["l0.e0", "l0.e1", "l0.e2"]
+    logits = [0.0, 10.0, 5.0]  # e1 >> e2 > e0
+    sel, scores = route_experts(logits, ids, top_k=2)
+    assert set(sel) == {"l0.e1", "l0.e2"}
+    assert abs(scores[0] + scores[1] - 1.0) < 1e-6
+    # e1 has the higher logit and must rank first.
+    assert sel[0] == "l0.e1"
+
+
+def test_route_experts_clamps_top_k_to_available():
+    ids = ["l0.e0"]
+    logits = [1.0]
+    sel, scores = route_experts(logits, ids, top_k=5)
+    assert sel == ["l0.e0"]
+    assert abs(scores[0] - 1.0) < 1e-6
+
+
+def test_route_experts_empty_when_no_experts():
+    sel, scores = route_experts([], [], top_k=2)
+    assert sel == [] and scores == []
+
+
+def test_route_experts_equal_logits_gives_equal_scores():
+    ids = ["a", "b", "c", "d"]
+    logits = [1.0, 1.0, 1.0, 1.0]
+    sel, scores = route_experts(logits, ids, top_k=2)
+    # All logits identical → equal probs → top-k subset still equal after
+    # renormalisation (each ≈ 0.5).
+    for s in scores:
+        assert abs(s - 0.5) < 1e-6
+
+
+def test_route_experts_end_to_end_with_routed(tmp_path):
+    """Feed route_experts output directly into MoeForward.routed."""
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    fwd = _weave(bank, mover)
+    expert_ids = ["l0.e0", "l0.e1"]
+    logits = [0.0, 10.0]
+    sel, scores = route_experts(logits, expert_ids, top_k=2)
+    x = np.linspace(-1, 1, 8, dtype=np.float32)
+    out = fwd.routed(x, sel, scores)
+    assert np.asarray(out).shape == (8,)
