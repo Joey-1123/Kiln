@@ -640,3 +640,28 @@ def test_routed_identical_across_three_budgets(tmp_path):
 
     for i in range(1, len(results)):
         np.testing.assert_allclose(results[0], results[i], atol=1e-2, rtol=1e-2)
+
+
+
+# ---------------------------------------------------------------------------
+# Numerical stability of route_experts
+# ---------------------------------------------------------------------------
+
+
+def test_route_experts_extreme_logits():
+    """Softmax handles very large and very small logits without NaN/Inf."""
+    ids = ["a", "b", "c"]
+    for logits in [[1000.0, -1000.0, 0.0], [-500.0, -500.0, -500.0]]:
+        sel, scores = route_experts(logits, ids, top_k=2)
+        assert len(sel) == 2
+        assert all(np.isfinite(s) for s in scores)
+        assert abs(sum(scores) - 1.0) < 1e-6
+
+
+def test_route_experts_all_equal_logits():
+    """All logits equal → uniform top-k selection."""
+    ids = ["a", "b", "c", "d"]
+    sel, scores = route_experts([5.0, 5.0, 5.0, 5.0], ids, top_k=2)
+    assert len(sel) == 2
+    for s in scores:
+        assert abs(s - 0.5) < 1e-6
