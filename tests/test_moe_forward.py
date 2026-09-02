@@ -235,3 +235,61 @@ def test_backend_routed_forward_requires_load(tmp_path):
 
     with _pytest.raises(RuntimeError):
         backend.routed_forward(np.zeros(8), ["l0.e0"], [1.0])
+
+
+
+# ---------------------------------------------------------------------------
+# Batch routing (sequence of tokens with per-position expert sets)
+# ---------------------------------------------------------------------------
+
+
+def test_routed_batch_routes_each_position_independently(tmp_path):
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    fwd = _weave(bank, mover)
+    x = np.linspace(-1, 1, 32, dtype=np.float32).reshape(4, 8)
+
+    # Position 0 -> e0, position 1..3 -> e1.
+    routes = [
+        (["l0.e0"], [1.0]),
+        (["l0.e1"], [1.0]),
+        (["l0.e1"], [1.0]),
+        (["l0.e1"], [1.0]),
+    ]
+    out = fwd.routed_batch(x, routes)
+
+    # Reference per row against the mover's real weights.
+    expected = []
+    for i, (ei, sc) in enumerate(routes):
+        eid = ei[0]  # "l<L>.e<E>"
+        _, right = eid.split(".")
+        layer = int(eid[1: eid.index(".")])
+        expert = int(right[1:])
+        tens = mover._resident_tensors[eid]
+        pref = f"layers.{layer}.experts.{expert}."
+        w = {p: np.asarray(tens[pref + p + ".weight"].detach().cpu().numpy())
+             for p in ("up_proj", "gate_proj", "down_proj")}
+        row = x[i]
+        expected.append(((row @ w["up_proj"].T) * (row @ w["gate_proj"].T)) @ w["down_proj"].T)
+    expected = np.stack(expected)
+
+    np.allclose(np.asarray(out), expected, atol=1e-2)
+    assert np.asarray(out).shape == (4, 8)
+
+
+def test_routed_batch_ensures_resident_union(tmp_path):
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    fwd = _weave(bank, mover)
+    x = np.linspace(-1, 1, 16).reshape(2, 8)
+    routes = [(["l0.e0"], [1.0]), (["l0.e1"], [1.0])]
+    fwd.routed_batch(x, routes)
+    assert bank.is_resident("l0.e0") and bank.is_resident("l0.e1")
+
+
+def test_routed_batch_rejects_wrong_route_count(tmp_path):
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    fwd = _weave(bank, mover)
+    x = np.linspace(-1, 1, 24).reshape(3, 8)
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        fwd.routed_batch(x, [(["l0.e0"], [1.0])])  # 1 route for 3 rows

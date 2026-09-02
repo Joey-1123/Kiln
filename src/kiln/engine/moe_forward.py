@@ -144,7 +144,51 @@ class MoeForward:
         matmul = _default_matmul(x)
         library = _library_kind(x)  # "torch" | "numpy" — identity synthesis must match
         self._ensure_resident(expert_ids)
+        return self._route_one(x, expert_ids, scores, library, matmul)
 
+    def routed_batch(
+        self,
+        x: Any,
+        routes: list[tuple[list[str], list[float]]],
+    ) -> Any:
+        """Route every position of a ``(seq, d_model)`` buffer independently.
+
+        A real MoE layer routes each sequence position through its own top-k
+        expert set (multi-modal per-token routing). ``routes[i]`` is
+        ``(expert_ids, scores)`` for position ``i``; all positions together must
+        cover ``seq`` rows of ``x``. Returns a ``(seq, d_model)`` buffer with
+        the per-position routed output.
+
+        The union of all routed experts is ensured resident in one pass so a
+        batch of tokens shares the resident window under the GPU budget.
+        """
+        seq = _n_rows(x)
+        if len(routes) != seq:
+            raise ValueError(
+                f"expected {seq} routes (one per row) but got {len(routes)}"
+            )
+        matmul = _default_matmul(x)
+        library = _library_kind(x)
+        flat_ids: list[str] = []
+        for ei, _ in routes:
+            flat_ids.extend(ei)
+        self._ensure_resident(flat_ids)
+
+        outs = [
+            self._route_one(_row(x, i), routes[i][0], routes[i][1], library, matmul)
+            for i in range(seq)
+        ]
+        return _stack_rows(outs, library, ref=x)
+
+    def _route_one(
+        self,
+        x: Any,
+        expert_ids: list[str],
+        scores: list[float],
+        library: str,
+        matmul: Callable,
+    ) -> Any:
+        """Routed expert projection for a single token ``x``."""
         result = None
         for i, eid in enumerate(expert_ids):
             score = scores[i]
@@ -204,6 +248,34 @@ class MoeForward:
 # ---------------------------------------------------------------------------
 # Default ops (torch or numpy, chosen from the tensor's type)
 # ---------------------------------------------------------------------------
+
+
+def _n_rows(x: Any) -> int:
+    """Row count of a ``(seq, d_model)`` buffer (1 if a plain vector)."""
+    shape = x.shape if hasattr(x, "shape") else None
+    if shape is None or len(shape) == 1:
+        return 1
+    return int(shape[0])
+
+
+def _row(x: Any, i: int) -> Any:
+    """Slice row ``i`` of ``x`` (a plain vector returns itself)."""
+    if hasattr(x, "shape") and len(x.shape) > 1:
+        return x[i]
+    if getattr(x, "ndim", 0) > 1:
+        return x[i]
+    return x
+
+
+def _stack_rows(rows: list[Any], library: str, ref: Any) -> Any:
+    """Stack per-row routed outputs back into a ``(seq, d_model)`` buffer."""
+    if library == "torch":
+        import torch
+
+        return torch.stack(rows, dim=0)
+    import numpy as np
+
+    return np.stack(rows, axis=0)
 
 
 def _default_matmul(x: Any) -> Callable:
