@@ -618,3 +618,25 @@ def test_backend_lifecycle_load_route_exit(tmp_path):
 
     bank.exit_decode()
     assert not bank._decode_phase
+
+
+
+# ---------------------------------------------------------------------------
+# Multi-budget parity
+# ---------------------------------------------------------------------------
+
+
+def test_routed_identical_across_three_budgets(tmp_path):
+    """Same routing decision produces identical output regardless of GPU budget."""
+    budgets = [192, 384, 10_000]
+    results = []
+    for cap in budgets:
+        _, mover, bank = _bank(tmp_path, gpu_capacity=cap)
+        bank.enter_decode()
+        fwd = _weave(bank, mover)
+        x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+        out = fwd.routed(x, ["l0.e0", "l0.e1"], [0.4, 0.6])
+        results.append(np.asarray(out))
+
+    for i in range(1, len(results)):
+        np.testing.assert_allclose(results[0], results[i], atol=1e-2, rtol=1e-2)
