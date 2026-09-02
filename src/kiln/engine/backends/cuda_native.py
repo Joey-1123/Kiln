@@ -144,6 +144,7 @@ class CUDABackend:
         """
         from kiln.engine.expert_bank import ExpertBank, Strategy
         from kiln.engine.expert_mover import TorchExpertMover
+        from kiln.engine.moe_forward import MoeForward
         from kiln.engine.safetensors_store import SafetensorsExpertStore
 
         store = SafetensorsExpertStore(model_dir)
@@ -155,13 +156,50 @@ class CUDABackend:
             mover=mover.move,
         )
         store.populate(bank)
+
+        # Bind the decode-phase compute block to this backend's bank + mover so
+        # ``routed_forward`` can turn a routing decision into real projection
+        # matmuls from the resident weights (B6 forward). The hidden size is
+        # taken from the widest expert dim so the identity fallback is sized
+        # correctly when a projection tensor is absent.
+        hidden = max((getattr(e, "dims", 0) for e in bank.experts.values()), default=0)
+        forward = MoeForward(bank, mover=mover, hidden_size=hidden)
         self._expert_mover = mover
+        self._moe_forward = forward
+        self._moe_bank = bank
         return bank
 
     @property
     def expert_mover(self) -> Any:
         """The last :class:`TorchExpertMover` created by :meth:`load_moe_experts`."""
         return getattr(self, "_expert_mover", None)
+
+    @property
+    def moe_forward(self) -> Any:
+        """The :class:`MoeForward` bound to the last :meth:`load_moe_experts`."""
+        return getattr(self, "_moe_forward", None)
+
+    @property
+    def moe_bank(self) -> Any:
+        """The :class:`ExpertBank` built by the last :meth:`load_moe_experts`."""
+        return getattr(self, "_moe_bank", None)
+
+    def routed_forward(
+        self,
+        hidden: Any,
+        expert_ids: list[str],
+        scores: list[float],
+    ) -> Any:
+        """Route ``hidden`` through the bound MoE forward (decode phase).
+
+        This is the CPU-testable surface the engine calls for a real MoE layer
+        step: it ensures the routed experts are resident in the bank and returns
+        the routed expert projection output with the same shape as ``hidden``.
+        """
+        fwd = self.moe_forward
+        if fwd is None:
+            raise RuntimeError("No MoE experts loaded (call load_moe_experts first)")
+        return fwd.routed(hidden, expert_ids, scores)
 
     def generate(
         self,

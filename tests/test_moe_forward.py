@@ -184,3 +184,54 @@ def test_synthetic_identity_projection_no_mover(tmp_path):
     x = np.linspace(-1, 1, 8)
     out = fwd.routed(x, ["l0.e0"], [1.0])
     np.testing.assert_allclose(np.asarray(out), x * x, rtol=1e-6, atol=1e-6)
+
+
+
+# ---------------------------------------------------------------------------
+# Backend integration: CUDABackend.load_moe_experts binds a routed forward
+# ---------------------------------------------------------------------------
+
+
+def test_backend_load_moe_experts_binds_forward(tmp_path):
+    """The backend exposes the bound forward + bank after load_moe_experts."""
+    from kiln.engine.backends.cuda_native import CUDABackend
+    from kiln.engine.moe_forward import MoeForward
+
+    _build_model_dir(tmp_path)
+    backend = CUDABackend()
+    bank = backend.load_moe_experts(str(tmp_path), strategy="offload")
+    assert backend.moe_bank is bank
+    assert isinstance(backend.moe_forward, MoeForward)
+    assert backend.expert_mover is not None
+
+
+def test_backend_routed_forward_matches_direct(tmp_path):
+    """routed_forward returns the correctly routed expert output on CPU."""
+    from kiln.engine.backends.cuda_native import CUDABackend
+
+    _build_model_dir(tmp_path)
+    backend = CUDABackend()
+    bank = backend.load_moe_experts(str(tmp_path), strategy="offload")
+    bank.enter_decode()
+
+    x = np.linspace(-1, 1, 8, dtype=np.float32)
+    out = backend.routed_forward(x, ["l0.e0"], [1.0])
+
+    up = backend.expert_mover._resident_tensors["l0.e0"]["layers.0.experts.0.up_proj.weight"]
+    gate = backend.expert_mover._resident_tensors["l0.e0"]["layers.0.experts.0.gate_proj.weight"]
+    down = backend.expert_mover._resident_tensors["l0.e0"]["layers.0.experts.0.down_proj.weight"]
+    up, gate, down = (np.asarray(t.detach().cpu().numpy()) for t in (up, gate, down))
+    expected = ((x @ up.T) * (x @ gate.T)) @ down.T
+
+    np.allclose(np.asarray(out), expected, atol=1e-2)
+
+
+def test_backend_routed_forward_requires_load(tmp_path):
+    """routed_forward before load_moe_experts raises a clear error."""
+    from kiln.engine.backends.cuda_native import CUDABackend
+
+    backend = CUDABackend()
+    import pytest as _pytest
+
+    with _pytest.raises(RuntimeError):
+        backend.routed_forward(np.zeros(8), ["l0.e0"], [1.0])
