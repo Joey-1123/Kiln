@@ -702,3 +702,22 @@ def test_scaled_logits_preserve_ranking():
     s1, _ = route_experts(base, ids, top_k=2)
     s2, _ = route_experts([v * 3.0 for v in base], ids, top_k=2)
     assert set(s1) == set(s2)
+
+
+
+# ---------------------------------------------------------------------------
+# Repeated routing determinism
+# ---------------------------------------------------------------------------
+
+
+def test_routed_is_deterministic_across_repeated_calls(tmp_path):
+    """Same input routed repeatedly yields identical results."""
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    bank.enter_decode()
+    fwd = _weave(bank, mover)
+
+    x = np.array([0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0], dtype=np.float32)
+    first = np.asarray(fwd.routed(x, ["l0.e0", "l0.e1"], [0.5, 0.5]))
+    for _ in range(5):
+        again = np.asarray(fwd.routed(x, ["l0.e0", "l0.e1"], [0.5, 0.5]))
+        np.testing.assert_array_almost_equal(first, again)
