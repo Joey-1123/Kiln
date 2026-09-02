@@ -307,6 +307,29 @@ def route_experts(
     return selected_ids, selected_scores
 
 
+def route_experts_batch(
+    gate_logits: Any,
+    expert_ids: list[str],
+    top_k: int = 2,
+) -> list[tuple[list[str], list[float]]]:
+    """Route every sequence position independently from a logit matrix.
+
+    ``gate_logits`` is a ``(seq, n_experts)`` array or tensor. Each row is
+    routed via :func:`route_experts`. Returns a list of ``(ids, scores)``
+    tuples, one per position — the exact input format expected by
+    :meth:`MoeForward.routed_batch`.
+    """
+    import numpy as np
+
+    mat = np.asarray(gate_logits)
+    if mat.ndim == 1:
+        mat = mat.reshape(1, -1)
+    n_rows = mat.shape[0]
+    return [
+        route_experts(mat[i], expert_ids, top_k) for i in range(n_rows)
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Default ops (torch or numpy, chosen from the tensor's type)
 # ---------------------------------------------------------------------------

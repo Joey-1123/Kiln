@@ -12,7 +12,7 @@ import safetensors.numpy as sn
 
 from kiln.engine.expert_bank import Expert, ExpertBank, Strategy
 from kiln.engine.expert_mover import TorchExpertMover
-from kiln.engine.moe_forward import MoeForward, _projection_key, route_experts
+from kiln.engine.moe_forward import MoeForward, _projection_key, route_experts, route_experts_batch
 from kiln.engine.safetensors_store import SafetensorsExpertStore
 
 
@@ -394,3 +394,32 @@ def test_routed_batch_torch_path(tmp_path):
     routes = [(["l0.e0"], [1.0]), (["l0.e1"], [1.0])]
     out = fwd_th.routed_batch(x, routes)
     assert out.shape == (2, 8)
+
+
+
+# ---------------------------------------------------------------------------
+# route_experts_batch
+# ---------------------------------------------------------------------------
+
+
+def test_route_experts_batch_returns_per_position_routes():
+    ids = ["l0.e0", "l0.e1", "l0.e2"]
+    logits = np.array([
+        [0.0, 10.0, 5.0],   # pos 0: e1 >> e2 > e0
+        [10.0, 0.0, 0.0],   # pos 1: e0 >> e1 = e2
+    ])
+    routes = route_experts_batch(logits, ids, top_k=2)
+    assert len(routes) == 2
+    sel0, sc0 = routes[0]
+    assert sel0[0] == "l0.e1"
+    sel1, sc1 = routes[1]
+    assert sel1[0] == "l0.e0"
+
+
+def test_route_experts_batch_1d_logit_single_position():
+    """A single (n,) logit vector is treated as one position."""
+    ids = ["a", "b"]
+    logits = np.array([3.0, 1.0])
+    routes = route_experts_batch(logits, ids, top_k=1)
+    assert len(routes) == 1
+    assert routes[0][0] == ["a"]
