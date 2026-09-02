@@ -774,3 +774,25 @@ def test_route_experts_clamps_top_k_beyond_bank_size(tmp_path):
     sel, scores = route_experts([0.0, 10.0], ids, top_k=100)
     assert len(sel) == len(ids) == 2
     assert abs(sum(scores) - 1.0) < 1e-6
+
+
+
+# ---------------------------------------------------------------------------
+# Eviction does not corrupt routing output
+# ---------------------------------------------------------------------------
+
+
+def test_routed_stays_correct_after_forced_evictions(tmp_path):
+    """Output remains correct when repeated routing forces evictions."""
+    _, mover, bank = _bank(tmp_path, gpu_capacity=192)  # fits exactly one expert
+    bank.enter_decode()
+    fwd = _weave(bank, mover)
+
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+    out_a = np.asarray(fwd.routed(x, ["l0.e0"], [1.0]))
+    fwd.routed(x, ["l0.e1"], [1.0])  # forces e0 -> e1 eviction
+    fwd.routed(x, ["l0.e0"], [1.0])  # forces e1 -> e0 eviction
+    out_b = np.asarray(fwd.routed(x, ["l0.e0"], [1.0]))
+
+    assert fwd.weight_moves >= 2
+    np.testing.assert_allclose(out_a, out_b, atol=1e-5, rtol=1e-5)
