@@ -743,3 +743,34 @@ def test_route_batch_feeds_routed_batch(tmp_path):
     x = np.random.default_rng(7).random((2, 8), dtype=np.float32) * 2.0
     out = fwd.routed_batch(x, routes)
     assert np.asarray(out).shape == (2, 8)
+
+
+
+# ---------------------------------------------------------------------------
+# route_from_bank -> routed forward, and top_k clamping
+# ---------------------------------------------------------------------------
+
+
+def test_route_from_bank_feeds_routed(tmp_path):
+    """Bank-aware gate routing drives a single routed forward."""
+    _, mover, bank = _bank(tmp_path, gpu_capacity=10_000)
+    bank.enter_decode()
+    fwd = _weave(bank, mover)
+
+    ids = sorted(bank.experts)
+    logits = [1.0, 9.0]
+    sel, scores = route_from_bank(logits, bank, top_k=1)
+    assert sel == [ids[1]]
+
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+    out = fwd.routed(x, sel, scores)
+    assert np.asarray(out).shape == (8,)
+
+
+def test_route_experts_clamps_top_k_beyond_bank_size(tmp_path):
+    """top_k larger than the expert set is clamped to the set size."""
+    _, _, bank = _bank(tmp_path, gpu_capacity=10_000)
+    ids = sorted(bank.experts)
+    sel, scores = route_experts([0.0, 10.0], ids, top_k=100)
+    assert len(sel) == len(ids) == 2
+    assert abs(sum(scores) - 1.0) < 1e-6
