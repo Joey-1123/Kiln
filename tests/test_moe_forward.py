@@ -595,3 +595,26 @@ def test_route_from_bank_rejects_length_mismatch(tmp_path):
 
     with _pytest.raises(ValueError):
         route_from_bank([1.0], bank, top_k=1)  # 1 logit != 2 experts
+
+
+
+# ---------------------------------------------------------------------------
+# Backend lifecycle integration
+# ---------------------------------------------------------------------------
+
+
+def test_backend_lifecycle_load_route_exit(tmp_path):
+    """Full cycle: load → enter_decode → routed_forward → exit_decode."""
+    from kiln.engine.backends.cuda_native import CUDABackend
+
+    _build_model_dir(tmp_path)
+    backend = CUDABackend()
+    bank = backend.load_moe_experts(str(tmp_path), strategy="offload")
+    bank.enter_decode()
+
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+    out = backend.routed_forward(x, ["l0.e0"], [1.0])
+    assert np.asarray(out).shape == (8,)
+
+    bank.exit_decode()
+    assert not bank._decode_phase
