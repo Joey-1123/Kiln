@@ -665,3 +665,25 @@ def test_route_experts_all_equal_logits():
     assert len(sel) == 2
     for s in scores:
         assert abs(s - 0.5) < 1e-6
+
+
+
+# ---------------------------------------------------------------------------
+# CPU strategy through the backend
+# ---------------------------------------------------------------------------
+
+
+def test_backend_cpu_strategy_routes(tmp_path):
+    """Backend with cpu strategy routes without promoting to GPU."""
+    from kiln.engine.backends.cuda_native import CUDABackend
+
+    _build_model_dir(tmp_path)
+    backend = CUDABackend()
+    bank = backend.load_moe_experts(str(tmp_path), strategy="cpu")
+    bank.enter_decode()
+
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+    out = backend.routed_forward(x, ["l0.e0"], [1.0])
+    assert np.asarray(out).shape == (8,)
+    # CPU strategy: expert is NOT resident on GPU.
+    assert not bank.is_resident("l0.e0")
