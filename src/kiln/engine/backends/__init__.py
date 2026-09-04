@@ -27,6 +27,7 @@ class BackendInfo:
     supports_gptq: bool = False
     supports_gguf: bool = False
     supports_continuous_batching: bool = False
+    supports_grammar: bool = False
     supports_cuda_graph: bool = False
     supports_triton: bool = False
     supports_offload: bool = False

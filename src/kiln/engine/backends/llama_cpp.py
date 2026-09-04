@@ -73,10 +73,16 @@ class CPUBackend:
         temperature: float = 0.7,
         top_p: float = 1.0,
         stop: tuple[str, ...] = (),
+        grammar: str = "",
     ) -> str:
         """Generate text from a prompt (non-streaming)."""
         if self._llm is None:
             raise RuntimeError("No model loaded")
+
+        if grammar:
+            raise RuntimeError(
+                "CPU backend does not support constrained decoding (grammar)."
+            )
 
         result = self._llm(
             prompt,
@@ -95,6 +101,7 @@ class CPUBackend:
         temperature: float = 0.7,
         top_p: float = 1.0,
         stop: tuple[str, ...] = (),
+        grammar: str = "",
     ):
         """Generate text token-by-token (streaming generator).
 
@@ -102,6 +109,11 @@ class CPUBackend:
         """
         if self._llm is None:
             raise RuntimeError("No model loaded")
+
+        if grammar:
+            raise RuntimeError(
+                "CPU backend does not support constrained decoding (grammar)."
+            )
 
         finish_reason = None
         for chunk in self._llm(

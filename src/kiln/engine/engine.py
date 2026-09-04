@@ -176,6 +176,15 @@ class Engine:
                 error_message="No model loaded. Send LoadModelRequest first.",
             ))
             return
+        if req.grammar and not (self._backend_info and self._backend_info.supports_grammar):
+            # Fail closed: a requested grammar must never be silently ignored.
+            await self._eng.put(GenerateError(
+                request_id=req.request_id,
+                error_code="grammar_unsupported",
+                error_message="Grammar requested but the active backend does not "
+                "support constrained decoding.",
+            ))
+            return
         try:
             self._scheduler.run({"request_id": req.request_id}, n_steps=1)
             if self._offload is not None:
@@ -209,6 +218,7 @@ class Engine:
                 temperature=req.temperature,
                 top_p=req.top_p,
                 stop=req.stop,
+                grammar=req.grammar,
             ),
         )
         if self._backend_info and self._backend_info.supports_triton:
@@ -239,6 +249,7 @@ class Engine:
                 temperature=req.temperature,
                 top_p=req.top_p,
                 stop=req.stop,
+                grammar=req.grammar,
             ))
 
         token_pairs = await loop.run_in_executor(None, _stream_tokens)

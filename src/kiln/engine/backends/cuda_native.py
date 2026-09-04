@@ -209,12 +209,18 @@ class CUDABackend:
         temperature: float = 0.7,
         top_p: float = 1.0,
         stop: tuple[str, ...] = (),
+        grammar: str = "",
     ) -> str:
         """Generate text from a prompt (non-streaming)."""
         import torch
 
         if self._model is None:
             raise RuntimeError("No model loaded")
+
+        if grammar:
+            raise RuntimeError(
+                "Grammar not yet implemented for non-streaming CUDA decode."
+            )
 
         inputs = self._tokenizer(prompt, return_tensors="pt").to(self._model.device)
         with torch.no_grad():
@@ -238,6 +244,7 @@ class CUDABackend:
         temperature: float = 0.7,
         top_p: float = 1.0,
         stop: tuple[str, ...] = (),
+        grammar: str = "",
     ):
         """Generate text token-by-token (streaming generator).
 
@@ -247,6 +254,11 @@ class CUDABackend:
 
         if self._model is None:
             raise RuntimeError("No model loaded")
+
+        if grammar:
+            raise RuntimeError(
+                "Grammar decoded-constraint not yet implemented in CUDA streaming decode."
+            )
 
         inputs = self._tokenizer(prompt, return_tensors="pt").to(self._model.device)
         generated: list[int] = []

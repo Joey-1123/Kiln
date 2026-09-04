@@ -118,4 +118,5 @@ class TestBackendInfo:
         assert info.supports_cpu is True
         assert info.supports_streaming is True
         assert info.supports_nf4 is False
+        assert info.supports_grammar is False
         assert info.requires_cuda is False
