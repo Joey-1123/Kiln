@@ -26,6 +26,7 @@ _INFO = BackendInfo(
     supports_cuda_graph=True,
     supports_triton=True,
     supports_offload=True,
+    supports_grammar=True,
     requires_cuda=True,
     requires_torch=True,
     description="Native torch+Triton, NF4/GPTQ quantization, batched + CUDA-graph + offload",
@@ -218,8 +219,17 @@ class CUDABackend:
             raise RuntimeError("No model loaded")
 
         if grammar:
-            raise RuntimeError(
-                "Grammar not yet implemented for non-streaming CUDA decode."
+            # Constrained decoding needs per-token masking, so reuse the
+            # streaming loop and join the emitted tokens.
+            return "".join(
+                tok for tok, _ in self.generate_stream(
+                    prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    stop=stop,
+                    grammar=grammar,
+                )
             )
 
         inputs = self._tokenizer(prompt, return_tensors="pt").to(self._model.device)
@@ -255,10 +265,7 @@ class CUDABackend:
         if self._model is None:
             raise RuntimeError("No model loaded")
 
-        if grammar:
-            raise RuntimeError(
-                "Grammar decoded-constraint not yet implemented in CUDA streaming decode."
-            )
+        constraint = self._grammar_constraint(grammar)
 
         inputs = self._tokenizer(prompt, return_tensors="pt").to(self._model.device)
         generated: list[int] = []
@@ -280,6 +287,17 @@ class CUDABackend:
                 }
                 outputs = self._model(**model_inputs)
                 next_token_logits = outputs.logits[0, -1, :]
+
+                # Constrained decoding: mask out-of-grammar tokens pre-softmax.
+                if constraint is not None and constraint.is_compiled:
+                    import xgrammar as xgr
+
+                    bitmask = constraint.fill_next_token_bitmask()
+                    xgr.apply_token_bitmask_inplace(
+                        next_token_logits.unsqueeze(0),
+                        bitmask.to(next_token_logits.device),
+                    )
+
                 if temperature > 0:
                     next_token_logits = next_token_logits / temperature
                 probs = torch.softmax(next_token_logits, dim=-1)
@@ -292,6 +310,13 @@ class CUDABackend:
                 next_token_id = torch.multinomial(probs, 1).item()
                 token_text = self._tokenizer.decode([next_token_id])
                 generated.append(next_token_id)
+
+                if constraint is not None and constraint.is_compiled:
+                    constraint.accept_token(next_token_id)
+                    if constraint.is_terminated():
+                        finish_reason = "stop"
+                        yield token_text, finish_reason
+                        return
 
                 # Check stop sequences
                 generated_text = self._tokenizer.decode(generated)
@@ -314,6 +339,22 @@ class CUDABackend:
         self._tokenizer = None
         self._model_path = ""
         gc.collect()
+
+    def _grammar_constraint(self, grammar: str):
+        """Build (lazily) a GrammarConstraint for ``grammar``, or None.
+
+        Failures to compile a *requested* grammar surface as exceptions
+        (GrammarUnavailableError / ValueError) — never a silent unconstrained
+        fallback.
+        """
+        from kiln.engine.grammar_constraint import GrammarConstraint
+
+        if not grammar:
+            return None
+        vocab_size = getattr(self._model.config, "vocab_size", None)
+        c = GrammarConstraint(grammar)
+        c.compile(tokenizer=self._tokenizer, vocab_size=vocab_size)
+        return c
 
     def generate_parity(
         self,

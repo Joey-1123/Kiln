@@ -187,3 +187,116 @@ class TestMaskingLoopOrchestration:
         c.reset()
         assert c.is_terminated() is False
         assert c._matcher.accepted == []
+
+
+class _StubCudaModel:
+    """Minimal fake of the CUDA backend's loaded model + tokenizer."""
+
+    class _Config:
+        vocab_size = 128
+
+    config = _Config()
+    device = "cpu"
+
+    def __init__(self):
+        self.logits = None
+
+    def __call__(self, **kwargs):
+        return type("Out", (), {"logits": self.logits})()
+
+
+class _StubTokenizer:
+    vocab_size = 128
+
+    def __call__(self, prompt, return_tensors="pt"):
+        import torch
+
+        class _Batch:
+            def __init__(self):
+                self.input_ids = torch.zeros(1, 4, dtype=torch.long)
+
+            def __getitem__(self, key):
+                return getattr(self, key)
+
+            def to(self, device):
+                return self
+
+        return _Batch()
+
+    def decode(self, ids, skip_special_tokens=True):
+        if isinstance(ids, int):
+            return f"<{ids}>"
+        return "".join(f"<{t}>" for t in ids)
+
+
+class TestCudaStreamingGrammarOrchestration:
+    """ORCHESTRATION ONLY — CUDA streaming wiring, no real masking.
+
+    Verifies generate_stream calls the constraint's mask→accept→terminate cycle
+    and applies the bitmask to logits pre-softmax, using a stub constraint and
+    a stub torch model. Never imports xgrammar at module scope.
+    """
+
+    def test_streaming_masks_accepts_and_terminates(self, monkeypatch):
+        import torch
+
+        from kiln.engine.backends.cuda_native import CUDABackend
+        from kiln.engine.grammar_constraint import GrammarConstraint
+
+        # Stub xgrammar so the in-loop import resolves, and record mask applies.
+        applied = []
+
+        class _FakeXgrammar:
+            @staticmethod
+            def apply_token_bitmask_inplace(logits, bitmask):
+                applied.append(logits.shape[0])
+
+        import sys
+
+        fake = _FakeXgrammar()
+        sys.modules["xgrammar"] = fake
+
+        backend = CUDABackend()
+        model = _StubCudaModel()
+        model.logits = type("L", (), {})()
+        model.logits = torch.randn(1, 1, 128)
+        backend._model = model
+        backend._tokenizer = _StubTokenizer()
+        real_call = model.__call__
+
+        def call(**kwargs):
+            out = real_call(**kwargs)
+            out.logits = model.logits
+            return out
+
+        model.__call__ = call
+
+        # Inject a stub constraint (GrammarConstraint subclass, no real compile).
+        class _LocalStub(GrammarConstraint):
+            def __init__(self, grammar):
+                super().__init__(grammar)
+                self._matcher = _StubMatcher()
+                self._is_compiled = True
+
+            @property
+            def is_compiled(self):
+                return True
+
+            def fill_next_token_bitmask(self):
+                return torch.zeros(1, 8, dtype=torch.bool)
+
+        stub = _LocalStub("^[a-z]+$")
+        backend._grammar_constraint = lambda g: stub
+
+        gen = backend.generate_stream(
+            "hi", max_tokens=10, temperature=0.0, grammar="^[a-z]+$"
+        )
+        tokens = list(gen)
+
+        assert applied  # bitmask applied at least once
+        assert stub._matcher.accepted  # tokens accepted
+        # stub terminates after 3 accepts
+        assert len(tokens) <= 3
+        # last emitted finish_reason is stop
+        assert tokens[-1][1] == "stop"
+        del sys.modules["xgrammar"]
