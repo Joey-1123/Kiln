@@ -18,7 +18,8 @@ class BackendInfo:
     set at registration time.
     """
 
-    name: str  # "cuda" | "cpu"
+    name: str  # "cuda" | "cpu" | "roc"
+    device_family: str = "any"  # "nvidia" | "amd" | "any" (accelerator it targets)
     supports_gpu: bool = False
     supports_cpu: bool = True
     supports_streaming: bool = True
@@ -62,6 +63,7 @@ def select_backend(
     *,
     prefer: str = "",
     require_gpu: bool = False,
+    require_accel: str = "",  # "nvidia" | "amd" | "" (any)
     require_nf4: bool = False,
     require_gptq: bool = False,
     require_gguf: bool = False,
@@ -69,14 +71,17 @@ def select_backend(
     """Select the best backend matching constraints.
 
     Priority: explicit ``prefer`` > GPU-capable > first registered.
-    Returns None if no backend matches.
+    ``require_accel`` (``"nvidia"``/``"amd"``) narrows to a device family, so a
+    caller on AMD hardware can avoid NVIDIA-only backends. Returns None if no
+    backend matches.
     """
     if prefer:
         b = get_backend(prefer)
-        if b is not None:
+        if b is not None and _family_ok(b, require_accel):
             return b
 
     candidates = list(_REGISTRY.values())
+    candidates = [b for b in candidates if _family_ok(b, require_accel)]
 
     if require_gpu:
         candidates = [b for b in candidates if b.supports_gpu]
@@ -93,6 +98,13 @@ def select_backend(
     # Prefer GPU-capable backends
     gpu = [b for b in candidates if b.supports_gpu]
     return gpu[0] if gpu else candidates[0]
+
+
+def _family_ok(info: BackendInfo, require_accel: str) -> bool:
+    """True when ``info`` is acceptable for the requested accelerator."""
+    if not require_accel:
+        return True
+    return info.device_family in ("any", require_accel)
 
 
 def clear_registry() -> None:

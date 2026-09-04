@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 
 _INFO = BackendInfo(
     name="cuda",
+    device_family="nvidia",
     supports_gpu=True,
     supports_cpu=False,
     supports_streaming=True,
@@ -32,11 +33,33 @@ _INFO = BackendInfo(
     description="Native torch+Triton, NF4/GPTQ quantization, batched + CUDA-graph + offload",
 )
 
+# ROCm alias — same class; the inference path is device-agnostic (self._model.device),
+# so this backend serves AMD hardware via the shared CUDABackend implementation.
+_INFO_ROC = BackendInfo(
+    name="roc",
+    device_family="amd",
+    supports_gpu=True,
+    supports_cpu=False,
+    supports_streaming=True,
+    supports_tools=True,
+    supports_nf4=True,
+    supports_gptq=True,
+    supports_continuous_batching=True,
+    supports_cuda_graph=True,
+    supports_triton=True,
+    supports_offload=True,
+    supports_grammar=True,
+    requires_cuda=True,
+    requires_torch=True,
+    description="AMD ROCm alias (HIP) — native torch+Triton, NF4/GPTQ, batched + offload",
+)
+
 
 def register() -> None:
     """Register the CUDA backend (never imports torch)."""
     register_backend(_INFO)
-
+    # ROCm alias shares the same device-agnostic backend class.
+    register_backend(_INFO_ROC)
 
 class CUDABackend:
     """CUDA inference backend using transformers + NF4.

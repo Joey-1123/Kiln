@@ -316,14 +316,19 @@ class Engine:
             ))
 
     def _load_backend(self, model_path: str, backend_hint: str, quantization: str = "none") -> None:
-        """Load a model into the appropriate backend (blocking)."""
-        if self._backend_info is not None and self._backend_info.name == "cuda":
+        """Load a model into the appropriate backend (blocking).
+
+        Dispatches on capability, not backend name, so the GPU backend class
+        (device-agnostic via ``self._model.device``) serves both NVIDIA (cuda)
+        and AMD (roc) registrations.
+        """
+        if self._backend_info is not None and self._backend_info.supports_gpu:
             from kiln.engine.backends.cuda_native import CUDABackend
 
             b = CUDABackend()
             b.load_model(model_path, quantization=quantization)
             self._backend = b
-        elif self._backend_info is not None and self._backend_info.name == "cpu":
+        elif self._backend_info is not None and self._backend_info.supports_cpu:
             from kiln.engine.backends.llama_cpp import CPUBackend
 
             b = CPUBackend()

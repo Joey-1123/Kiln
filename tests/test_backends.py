@@ -116,7 +116,79 @@ class TestBackendInfo:
         info = BackendInfo(name="test")
         assert info.supports_gpu is False
         assert info.supports_cpu is True
+        assert info.device_family == "any"
         assert info.supports_streaming is True
         assert info.supports_nf4 is False
         assert info.supports_grammar is False
         assert info.requires_cuda is False
+
+
+class TestRequireAccel:
+    def setup_method(self):
+        clear_registry()
+
+    def _reg(self):
+        register_backend(BackendInfo(name="cuda", device_family="nvidia", supports_gpu=True))
+        register_backend(BackendInfo(name="roc", device_family="amd", supports_gpu=True))
+        register_backend(BackendInfo(name="cpu"))
+
+    def test_nvidia_family_only_selects_cuda(self):
+        self._reg()
+        result = select_backend(require_gpu=True, require_accel="nvidia")
+        assert result is not None
+        assert result.name == "cuda"
+
+    def test_amd_family_only_selects_roc(self):
+        self._reg()
+        result = select_backend(require_gpu=True, require_accel="amd")
+        assert result is not None
+        assert result.name == "roc"
+
+    def test_no_accel_prefers_first_gpu(self):
+        self._reg()
+        result = select_backend(require_gpu=True)
+        assert result is not None
+        assert result.name == "cuda"
+
+    def test_prefer_respects_family(self):
+        self._reg()
+        result = select_backend(prefer="roc", require_accel="amd")
+        assert result is not None
+        assert result.name == "roc"
+
+    def test_prefer_rejected_when_family_mismatch(self):
+        self._reg()
+        result = select_backend(prefer="cuda", require_accel="amd")
+        # cuda is nvidia-family; should not match when amd required -> falls
+        # through to candidates with amd family => roc
+        assert result is not None
+        assert result.name == "roc"
+
+    def test_unknown_accel_returns_none(self):
+        self._reg()
+        result = select_backend(require_gpu=True, require_accel="intel")
+        assert result is None
+
+
+class TestRocRegistration:
+    def setup_method(self):
+        clear_registry()
+        from kiln.engine.backends.cuda_native import register as reg
+
+        reg()
+
+    def test_roc_registered_alongside_cuda(self):
+        roc = get_backend("roc")
+        assert roc is not None
+        assert roc.device_family == "amd"
+        assert roc.supports_gpu is True
+
+    def test_cuda_registered_as_nvidia(self):
+        cuda = get_backend("cuda")
+        assert cuda is not None
+        assert cuda.device_family == "nvidia"
+
+    def test_amd_auto_selects_roc(self):
+        result = select_backend(require_gpu=True, require_accel="amd")
+        assert result is not None
+        assert result.name == "roc"
