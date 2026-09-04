@@ -20,7 +20,9 @@ def measure_bandwidth_gbps() -> Optional[float]:
         import torch
     except ImportError:
         return None
-    if not torch.cuda.is_available():
+    from kiln.utils.platform import torch_gpu_available
+
+    if not torch_gpu_available():
         return None
 
     import time

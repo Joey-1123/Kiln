@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import os
 import platform
-import subprocess
 import time
 import uuid as uuid_lib
 from pathlib import Path
@@ -30,20 +29,14 @@ def cache_root() -> Path:
 
 
 def _gpu_uuid() -> str | None:
-    """Return the first GPU UUID via nvidia-smi, or None if unavailable."""
-    try:
-        out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=uuid", "--format=csv,noheader"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (FileNotFoundError, subprocess.SubprocessError):
-        return None
-    if out.returncode != 0:
-        return None
-    uuids = [line.strip() for line in out.stdout.splitlines() if line.strip()]
-    return uuids[0] if uuids else None
+    """Return the first GPU UUID via the centralized discovery, or None."""
+    from kiln.utils.platform import gpu_devices
+
+    devices = gpu_devices()
+    for d in devices:
+        if d.get("uuid"):
+            return str(d["uuid"])
+    return None
 
 
 def host_uuid() -> str:
