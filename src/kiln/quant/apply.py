@@ -24,7 +24,7 @@ from kiln.utils.exitcodes import USAGE
 class QuantSpec:
     name: str
     bits: int
-    backend: str  # "cuda" | "cpu"
+    backend: str  # "cuda" | "roc" | "cpu"
     applied_at: str  # "load" | "train" | "artifact"
 
 

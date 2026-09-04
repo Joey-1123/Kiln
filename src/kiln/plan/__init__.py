@@ -1,7 +1,7 @@
 """Plan — recommend backend and config based on hardware.
 
-Detects GPU, RAM, and disk; recommends backend (cuda/cpu), quantization level,
-VRAM/RAM budget. Optionally writes a kiln.yaml config file.
+Detects GPU, RAM, and disk; recommends backend (nvidia ``cuda`` / AMD ``roc`` /
+cpu), quantization level, VRAM/RAM budget. Optionally writes a kiln.yaml config file.
 
 Also classifies whether a QLoRA training run *fits* on the detected hardware,
 mapping an estimated VRAM peak against configurable policy thresholds into a

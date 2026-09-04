@@ -111,6 +111,8 @@ def _run_sft(
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from trl import SFTConfig, SFTTrainer
 
+    from kiln.utils.platform import torch_gpu_available
+
     # --- 1. Seed BEFORE anything model-related ---
     torch.manual_seed(seed)
 
@@ -164,7 +166,7 @@ def _run_sft(
         remove_unused_columns=False,
         logging_steps=10,
         save_strategy="epoch",
-        fp16=torch.cuda.is_available(),
+        fp16=torch_gpu_available(),
     )
 
     # --- 9. Train ---

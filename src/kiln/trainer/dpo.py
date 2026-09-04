@@ -119,6 +119,8 @@ def _run_dpo(
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from trl import DPOConfig, DPOTrainer
 
+    from kiln.utils.platform import torch_gpu_available
+
     # --- 1. Seed BEFORE anything model-related ---
     torch.manual_seed(seed)
 
@@ -180,7 +182,7 @@ def _run_dpo(
         logging_steps=10,
         save_strategy="epoch",
         beta=beta,
-        fp16=torch.cuda.is_available(),
+        fp16=torch_gpu_available(),
         report_to="none",
     )
 

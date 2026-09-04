@@ -14,7 +14,7 @@ from dataclasses import dataclass
 class QuantScheme:
     name: str
     bits: int
-    backend: str  # "cuda" (GPU) or "cpu" (GGUF/llama.cpp)
+    backend: str  # "cuda" (NVIDIA/AMD GPU kernels) or "cpu" (GGUF/llama.cpp)
 
 
 SCHEMES: dict[str, QuantScheme] = {
@@ -34,8 +34,14 @@ QUANTIZE_SCHEMES = frozenset({"gptq", "awq"})
 
 
 def available(backend: str) -> list[str]:
-    """Return scheme names usable on the given backend (plus the always-valid 'none')."""
-    return sorted(n for n, s in SCHEMES.items() if s.backend == backend or n == "none")
+    """Return scheme names usable on the given backend (plus the always-valid 'none').
+
+    Both ``cuda`` and its AMD alias ``roc`` expose the same device-agnostic
+    kernels, so the GPU schemes (tagged ``cuda``) are offered for either tag.
+    """
+    if backend == "cpu":
+        return sorted(n for n, s in SCHEMES.items() if s.backend == "cpu" or n == "none")
+    return sorted(n for n, s in SCHEMES.items() if s.backend == "cuda" or n == "none")
 
 
 def get(name: str) -> QuantScheme:
