@@ -48,6 +48,9 @@ serve = [
     "uvicorn>=0.27",
     "pyzmq>=25.0",
 ]
+grammar = [
+    "xgrammar>=0.2.5",
+]
 ui = []
 quant = [
     "auto-gptq>=0.7.1",
