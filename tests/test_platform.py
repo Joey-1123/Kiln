@@ -130,3 +130,53 @@ class TestTorchAccelVersion:
             lambda: _fake_torch(cuda_available=True, cuda_ver=None, hip_ver=None),
         )
         assert platform.torch_accel_version() is None
+
+
+class TestGpuDiscoveryParsers:
+    def test_parse_nvidia_smi_single(self):
+        out = platform.parse_nvidia_smi(
+            "NVIDIA GeForce RTX 4090, 24564, GPU-abc123\n"
+        )
+        assert out == [
+            {"family": "nvidia", "name": "NVIDIA GeForce RTX 4090",
+             "vram_mib": 24564, "uuid": "GPU-abc123"}
+        ]
+
+    def test_parse_nvidia_smi_multi_and_blanklines(self):
+        out = platform.parse_nvidia_smi(
+            "RTX 4090, 24564, GPU-1\n\nGTX 1080, 8192, GPU-2\n"
+        )
+        assert len(out) == 2
+        assert out[1]["uuid"] == "GPU-2"
+
+    def test_parse_nvidia_smi_bad_vram_defaults_zero(self):
+        out = platform.parse_nvidia_smi("Unknown GPU, n/a, GPU-x")
+        assert out[0]["vram_mib"] == 0
+
+    def test_parse_rocm_smi_json(self):
+        raw = (
+            '{"card0": {"Card series": "AMD Radeon RX 7900 XTX", '
+            '"VRAM Total Memory (B)": "26843545600", "Unique ID": "0x1234"}}'
+        )
+        out = platform.parse_rocm_smi_json(raw)
+        assert out == [
+            {"family": "amd", "name": "AMD Radeon RX 7900 XTX",
+             "vram_mib": 25600, "uuid": "0x1234"}
+        ]
+
+    def test_parse_rocm_smi_json_system_wrapper(self):
+        raw = (
+            '{"system": {"card1": {"Card series": "AMD Instinct MI300X", '
+            '"VRAM Total Memory (B)": "107374182400"}}}'
+        )
+        out = platform.parse_rocm_smi_json(raw)
+        assert out[0]["family"] == "amd"
+        assert out[0]["name"] == "AMD Instinct MI300X"
+        assert out[0]["vram_mib"] == 102400
+
+    def test_parse_rocm_smi_bad_json_falls_back_to_plain(self):
+        out = platform.parse_rocm_smi_json("not json at all")
+        assert isinstance(out, list)
+
+    def test_parse_rocm_smi_empty(self):
+        assert platform.parse_rocm_smi_json("") == []

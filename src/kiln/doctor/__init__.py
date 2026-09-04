@@ -12,7 +12,6 @@ from __future__ import annotations
 import importlib
 import os
 import platform
-import subprocess
 import sys
 from dataclasses import dataclass, field
 
@@ -99,22 +98,16 @@ def _check_gpu() -> CheckResult:
 
 
 def _detect_gpu() -> str | None:
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,memory.total",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            lines = result.stdout.strip().split("\n")
-            if lines:
-                gpu_name = lines[0].strip()
-                mem = gpu_name.split(",")[-1].strip()
-                return f"NVIDIA: {gpu_name} ({mem} MiB)"
-            return None
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    return None
+    from kiln.utils.platform import gpu_devices
+
+    devices = gpu_devices()
+    if not devices:
+        return None
+    first = devices[0]
+    display = f"{first['name']} ({first['vram_mib']} MiB)"
+    if first["family"] == "amd":
+        return f"AMD: {display}"
+    return f"NVIDIA: {display}"
 
 
 def _check_memory() -> CheckResult:
@@ -191,23 +184,29 @@ def _check_engine_backends() -> list[CheckResult]:
     results = []
     results.append(_check_llama_cpp())
 
+    from kiln.utils.platform import torch_accel_version, torch_gpu_available
+
+    if torch_gpu_available():
+        ver = torch_accel_version() or "GPU torch"
+        family = "AMD (ROCm)" if ver.startswith("hip") else "CUDA"
+        results.append(CheckResult(
+            id="backend:cuda", status="pass",
+            summary=f"{family} {ver}",
+        ))
+        return results
+
     try:
-        import torch
-        if torch.cuda.is_available():
-            results.append(CheckResult(
-                id="backend:cuda", status="pass",
-                summary=f"CUDA {torch.version.cuda}",
-            ))
-        else:
-            results.append(CheckResult(
-                id="backend:cuda", status="skip",
-                summary="torch installed but no CUDA device",
-            ))
+        import torch  # noqa: F401  (probe micro-call: distinguish absent vs no device)
     except ImportError:
         results.append(CheckResult(
             id="backend:cuda", status="skip",
             summary="torch not installed",
         ))
+        return results
+    results.append(CheckResult(
+        id="backend:cuda", status="skip",
+        summary="torch installed but no GPU device",
+    ))
     return results
 
 

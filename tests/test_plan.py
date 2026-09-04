@@ -38,9 +38,23 @@ class TestBuildPlan:
     def test_returns_plan_result(self):
         result = build_plan()
         assert isinstance(result, PlanResult)
-        assert result.backend in ("cuda", "cpu")
+        assert result.backend in ("cuda", "roc", "cpu")
         assert result.quant_recommendation in ("Q4_K_M", "Q5_K_M", "Q8_0", "F16")
         assert isinstance(result.reasoning, str)
+
+    def test_amd_gpu_selects_roc_backend(self, monkeypatch):
+        import kiln.plan as plan_module
+
+        monkeypatch.setattr(
+            plan_module,
+            "_get_gpu_info",
+            lambda: {"family": "amd", "name": "AMD Radeon RX 7900 XTX",
+                     "vram_mib": 24576, "uuid": None},
+        )
+        result = build_plan()
+        assert result.backend == "roc"
+        assert result.vram_gb and result.vram_gb >= 4.0
+        assert result.suggested_config["serving"]["backend"] == "roc"
 
     def test_has_suggested_config(self):
         result = build_plan()

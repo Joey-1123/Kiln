@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import enum
 import os
-import subprocess
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
@@ -51,23 +50,15 @@ class PlanResult:
         return d
 
 
-def _get_gpu_info() -> tuple[str | None, float | None]:
-    """Returns (gpu_name, vram_gb) or (None, None)."""
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,memory.total",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            line = result.stdout.strip().split("\n")[0]
-            parts = line.split(",")
-            name = parts[0].strip()
-            vram = float(parts[-1].strip()) / 1024
-            return name, vram
-    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
-        pass
-    return None, None
+def _get_gpu_info() -> dict | None:
+    """Return the first discovered GPU as {family, name, vram_mib, uuid}, or None.
+
+    Supports NVIDIA (nvidia-smi) and AMD (rocm-smi) via the centralized probe.
+    """
+    from kiln.utils.platform import gpu_devices
+
+    devices = gpu_devices()
+    return devices[0] if devices else None
 
 
 def _get_ram_gb() -> float | None:
@@ -126,13 +117,18 @@ def classify_fit(
 
 def build_plan() -> PlanResult:
     """Detect hardware and recommend a serving configuration."""
-    gpu_name, vram_gb = _get_gpu_info()
+    gpu = _get_gpu_info()
+    gpu_name = gpu["name"] if gpu else None
+    vram_gb = (gpu["vram_mib"] / 1024) if (gpu and gpu["vram_mib"]) else None
     ram_gb = _get_ram_gb()
     disk_gb = _get_disk_free_gb()
 
-    backend = "cuda" if gpu_name and vram_gb and vram_gb >= 4.0 else "cpu"
+    if gpu and gpu["family"] == "amd":
+        backend = "roc" if vram_gb and vram_gb >= 4.0 else "cpu"
+    else:
+        backend = "cuda" if gpu_name and vram_gb and vram_gb >= 4.0 else "cpu"
 
-    if backend == "cuda":
+    if backend in ("cuda", "roc"):
         if vram_gb and vram_gb >= 12.0:
             quant = "Q5_K_M"
             reasoning = (
@@ -154,7 +150,7 @@ def build_plan() -> PlanResult:
     else:
         quant = "Q8_0"
         reasoning = (
-            "No CUDA GPU detected. CPU serving available via llama.cpp backend."
+            "No GPU detected. CPU serving available via llama.cpp backend."
             + (f" {ram_gb:.1f} GB RAM." if ram_gb else "")
         )
 
