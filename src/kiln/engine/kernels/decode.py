@@ -75,7 +75,9 @@ class CudaGraphDecode:
         is owned by the graph and reused on every replay.
         """
         torch = _torch()
-        if not torch.cuda.is_available():
+        from kiln.utils.platform import torch_gpu_available
+
+        if not torch_gpu_available():
             raise RuntimeError("CUDA is required to capture a decode graph")
         graph = torch.cuda.CUDAGraph()
         static = seed_state.detach().clone().to(torch.cuda.current_device())

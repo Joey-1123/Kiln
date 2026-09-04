@@ -79,8 +79,8 @@ def is_triton_available() -> bool:
     if k is None:
         return False
     try:
-        import torch
+        from kiln.utils.platform import torch_gpu_available
 
-        return torch.cuda.is_available()
+        return torch_gpu_available()
     except Exception:
         return False

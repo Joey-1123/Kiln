@@ -62,9 +62,9 @@ class TorchExpertMover:
     def device(self) -> str:
         if self._device is not None:
             return self._device
-        import torch
+        from kiln.utils.platform import torch_gpu_available
 
-        if torch.cuda.is_available():
+        if torch_gpu_available():
             return "cuda"
         return "cpu"
 
